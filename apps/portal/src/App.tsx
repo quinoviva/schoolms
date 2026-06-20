@@ -19,6 +19,7 @@ import Announcements from './pages/Announcements'
 import Assignments from './pages/Assignments'
 import Profile from './pages/Profile'
 import ToastContainer from './components/ui/ToastContainer'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function AppRoutes() {
   const { appUser, loading } = useAuth()
@@ -61,7 +62,7 @@ function AppRoutes() {
 
   return (
     <PortalLayout path={page} onNav={setPage}>
-      {renderPage()}
+      <ErrorBoundary>{renderPage()}</ErrorBoundary>
     </PortalLayout>
   )
 }

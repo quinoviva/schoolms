@@ -10,6 +10,7 @@ import Enrollments from './pages/Enrollments'
 import SectionManagement from './pages/SectionManagement'
 import SubjectManagement from './pages/SubjectManagement'
 import ToastContainer from './components/ui/ToastContainer'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function AdminRoutes() {
   const { appUser, loading } = useAuth()
@@ -31,7 +32,7 @@ function AdminRoutes() {
 
   return (
     <AdminLayout path={page} onNav={setPage}>
-      {renderPage()}
+      <ErrorBoundary>{renderPage()}</ErrorBoundary>
     </AdminLayout>
   )
 }
