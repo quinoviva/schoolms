@@ -6,29 +6,21 @@ interface Toast {
   type: ToastType
 }
 
-type Listener = (toasts: Toast[]) => void
+type ToastAction =
+  | { type: 'add'; toast: Toast }
+  | { type: 'remove'; id: string }
 
-let toasts: Toast[] = []
-let listeners: Listener[] = []
+let handler: ((action: ToastAction) => void) | null = null
 
-function notify() {
-  listeners.forEach(l => l([...toasts]))
+export function setToastHandler(fn: (action: ToastAction) => void) {
+  handler = fn
+  return () => { handler = null }
 }
 
 export function showToast(message: string, type: ToastType = 'info') {
   const id = crypto.randomUUID()
-  toasts = [...toasts, { id, message, type }]
-  notify()
-  setTimeout(() => {
-    toasts = toasts.filter(t => t.id !== id)
-    notify()
-  }, 3500)
-}
-
-export function subscribeToasts(fn: Listener) {
-  listeners.push(fn)
-  fn([...toasts])
-  return () => { listeners = listeners.filter(l => l !== fn) }
+  handler?.({ type: 'add', toast: { id, message, type } })
+  setTimeout(() => handler?.({ type: 'remove', id }), 3500)
 }
 
 export type { Toast, ToastType }

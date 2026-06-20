@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
-import { subscribeToasts, type Toast } from './toast'
-import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react'
+import { setToastHandler, type Toast } from './toast'
+import { CheckCircle2, AlertTriangle, Info } from 'lucide-react'
 
 const ICONS = {
   success: CheckCircle2,
@@ -17,7 +17,10 @@ const STYLES = {
 export default function ToastContainer() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  useEffect(() => subscribeToasts(setToasts), [])
+  useEffect(() => setToastHandler((action) => {
+    if (action.type === 'add') setToasts(prev => [...prev, action.toast])
+    else setToasts(prev => prev.filter(t => t.id !== action.id))
+  }), [])
 
   if (!toasts.length) return null
 
@@ -28,7 +31,7 @@ export default function ToastContainer() {
         return (
           <div
             key={t.id}
-            className={`flex items-start gap-2.5 px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-[slideUp_0.3s_ease-out] ${STYLES[t.type]}`}
+            className={`flex items-start gap-2.5 px-4 py-3 rounded-lg shadow-xl text-sm font-medium ${STYLES[t.type]}`}
             style={{ animation: 'slideUp 0.3s ease-out' }}
           >
             <Icon size={16} className="shrink-0 mt-0.5" />

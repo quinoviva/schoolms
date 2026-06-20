@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react'
-import { subscribeToasts, type Toast } from './toast'
+import { setToastHandler, type Toast } from './toast'
 import { CheckCircle2, AlertTriangle, Info } from 'lucide-react'
 
 const ICONS = {
@@ -17,7 +17,10 @@ const STYLES = {
 export default function ToastContainer() {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  useEffect(() => subscribeToasts(setToasts), [])
+  useEffect(() => setToastHandler((action) => {
+    if (action.type === 'add') setToasts(prev => [...prev, action.toast])
+    else setToasts(prev => prev.filter(t => t.id !== action.id))
+  }), [])
 
   if (!toasts.length) return null
 
