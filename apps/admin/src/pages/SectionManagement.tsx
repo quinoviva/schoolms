@@ -114,9 +114,13 @@ export default function SectionManagement() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">Grade Level</label>
-              <input required value={form.gradeLevel} onChange={e => setForm(f => ({ ...f, gradeLevel: e.target.value }))}
-                placeholder="e.g., Grade 11"
-                className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
+              <select required value={form.gradeLevel} onChange={e => setForm(f => ({ ...f, gradeLevel: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
+                <option value="">-- Select grade level --</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
+                  <option key={g} value={`G${g}`}>Grade {g}</option>
+                ))}
+              </select>
             </div>
           </div>
           <button type="submit" disabled={saving}
@@ -193,9 +197,13 @@ export default function SectionManagement() {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1">Grade Level</label>
-                <input value={editForm.gradeLevel} onChange={e => setEditForm(f => ({ ...f, gradeLevel: e.target.value }))}
-                  placeholder="e.g., Grade 11"
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
+                <select value={editForm.gradeLevel} onChange={e => setEditForm(f => ({ ...f, gradeLevel: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
+                  <option value="">-- Select grade level --</option>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
+                    <option key={g} value={`G${g}`}>Grade {g}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
