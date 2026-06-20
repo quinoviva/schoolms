@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, addDoc, getDocs, doc, getDoc } from 'firebase/firestore'
-import { BookOpen, CheckCircle2, Clock, FileText } from 'lucide-react'
-import { db, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+﻿import { useEffect, useState, useRef } from 'react'
+import { collection, query, where, onSnapshot, addDoc, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { BookOpen, CheckCircle2, Clock, FileText, Upload, Download, Paperclip } from 'lucide-react'
+import { db, storage, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -24,6 +25,9 @@ export default function Assignments({ user }: { user: AppUser }) {
 
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const [submissionText, setSubmissionText] = useState('')
+  const [gradingScores, setGradingScores] = useState<Record<string, string>>({})
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingFileId, setUploadingFileId] = useState<string | null>(null)
 
   useEffect(() => {
     if (user.role !== 'teacher') return
@@ -104,15 +108,23 @@ export default function Assignments({ user }: { user: AppUser }) {
     }
   }
 
-  async function handleSubmit(assignmentId: string) {
-    if (!submissionText.trim()) return
+  async function handleSubmitWithFile(assignmentId: string, file?: File) {
+    if (!submissionText.trim() && !file) return
     setSubmittingId(assignmentId)
     try {
+      let fileUrl = ''
+      let fileName = ''
+      if (file) {
+        const storageRef = ref(storage, `submissions/${assignmentId}/${user.id}/${file.name}`)
+        await uploadBytes(storageRef, file)
+        fileUrl = await getDownloadURL(storageRef)
+        fileName = file.name
+      }
       await addDoc(collection(db, 'submissions'), {
         assignmentId,
         studentId: user.id,
-        fileUrl: '',
-        fileName: '',
+        fileUrl,
+        fileName,
         score: null,
         submittedAt: Date.now(),
         gradedAt: null,
@@ -123,6 +135,15 @@ export default function Assignments({ user }: { user: AppUser }) {
     } catch {
       showToast('Failed to submit assignment.', 'error')
       setSubmittingId(null)
+    }
+  }
+
+  async function handleGradeSubmission(submissionId: string, score: number) {
+    try {
+      await updateDoc(doc(db, 'submissions', submissionId), { score, gradedAt: Date.now() })
+      showToast('Submission graded!', 'success')
+    } catch {
+      showToast('Failed to grade submission.', 'error')
     }
   }
 
@@ -271,21 +292,39 @@ export default function Assignments({ user }: { user: AppUser }) {
               ) : (
                 <div className="space-y-2">
                   {submissionDetails.map(s => (
-                    <div key={s.studentId} className="flex items-center justify-between bg-secondary/40 p-3 rounded-lg">
-                      <span className="text-sm text-foreground">{s.studentName}</span>
-                      <span className={`text-xs font-semibold flex items-center gap-1.5 ${s.submission ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        {s.submission ? (
-                          <>
-                            <CheckCircle2 size={13} />
-                            Submitted {s.submission.score !== null ? `â€” Score: ${s.submission.score}` : 'â€” Pending grading'}
-                          </>
-                        ) : (
-                          <>
-                            <Clock size={13} />
-                            Pending
-                          </>
-                        )}
-                      </span>
+                    <div key={s.studentId} className="flex flex-col bg-secondary/40 p-3 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-foreground">{s.studentName}</span>
+                        <span className={`text-xs font-semibold flex items-center gap-1.5 ${s.submission ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {s.submission ? (
+                            <><CheckCircle2 size={13} /> {s.submission.score !== null ? `Score: ${s.submission.score}` : 'Pending grading'}</>
+                          ) : (
+                            <><Clock size={13} /> Pending</>
+                          )}
+                        </span>
+                      </div>
+                      {s.submission?.fileUrl && (
+                        <a href={s.submission.fileUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-[#1e3a5f] hover:text-[#8b6914] mt-1 flex items-center gap-1">
+                          <Download size={11} /> {s.submission.fileName || 'Download file'}
+                        </a>
+                      )}
+                      {s.submission && s.submission.score === null && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input type="number" min={0} max={selectedAssignment.maxScore}
+                            placeholder="Score"
+                            value={gradingScores[s.submission.id] || ''}
+                            onChange={e => setGradingScores(p => ({ ...p, [s.submission.id]: e.target.value }))}
+                            className="w-20 px-2 py-1 rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]/25" />
+                          <button onClick={() => {
+                            const score = parseInt(gradingScores[s.submission.id] || '0')
+                            if (!isNaN(score)) handleGradeSubmission(s.submission.id, score)
+                          }}
+                            className="text-xs px-2.5 py-1 rounded bg-[#1e3a5f] text-white font-semibold hover:bg-[#16304f] transition-colors">
+                            Grade
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -397,11 +436,13 @@ function StudentAssignmentCard({ assignment, user, submittingId, submissionText,
   submittingId: string | null
   submissionText: string
   onSubmissionTextChange: (v: string) => void
-  onSubmit: (assignmentId: string) => void
+  onSubmit: (assignmentId: string, file?: File) => void
 }) {
   const [submission, setSubmission] = useState<Submission | null>(null)
   const [loadingSub, setLoadingSub] = useState(true)
   const [showSubmitForm, setShowSubmitForm] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setLoadingSub(true)
@@ -457,16 +498,27 @@ function StudentAssignmentCard({ assignment, user, submittingId, submissionText,
                     rows={3}
                     className="w-full px-4 py-2.5 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-sm resize-none"
                   />
+                  <div className="flex items-center gap-2">
+                    <input ref={fileRef} type="file" className="hidden"
+                      onChange={e => setSelectedFile(e.target.files?.[0] || null)} />
+                    <button onClick={() => fileRef.current?.click()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-secondary transition-colors">
+                      <Upload size={12} /> {selectedFile ? selectedFile.name : 'Attach file'}
+                    </button>
+                    {selectedFile && (
+                      <button onClick={() => setSelectedFile(null)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => onSubmit(assignment.id)}
-                      disabled={submittingId === assignment.id || !submissionText.trim()}
+                      onClick={() => onSubmit(assignment.id, selectedFile || undefined)}
+                      disabled={submittingId === assignment.id || (!submissionText.trim() && !selectedFile)}
                       className="px-4 py-2 rounded-lg bg-[#1e3a5f] text-white text-sm font-semibold hover:bg-[#16304f] transition-colors disabled:opacity-50"
                     >
                       {submittingId === assignment.id ? 'Submitting...' : 'Submit'}
                     </button>
                     <button
-                      onClick={() => { setShowSubmitForm(false); onSubmissionTextChange('') }}
+                      onClick={() => { setShowSubmitForm(false); onSubmissionTextChange(''); setSelectedFile(null) }}
                       className="px-4 py-2 rounded-lg border border-border text-sm font-semibold text-foreground hover:bg-secondary transition-colors"
                     >
                       Cancel

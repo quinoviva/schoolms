@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useRef } from 'react'
+﻿import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc, setDoc } from 'firebase/firestore'
 import { db, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
@@ -16,6 +16,8 @@ export default function GradeEntry({ user }: { user: AppUser }) {
   const studentsRef = useRef<{ id: string; name: string }[]>([])
   const [isReleased, setIsReleased] = useState(false)
   const gradeReleaseDocId = useRef<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -102,11 +104,51 @@ export default function GradeEntry({ user }: { user: AppUser }) {
     return unsub
   }, [selectedClassId])
 
+  const autoSave = useCallback(async () => {
+    if (!selectedClassId || !dirty) return
+    setSaving(true)
+    try {
+      const existingSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
+      const existingGrades = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))
+      const batch = writeBatch(db)
+      const newSet = new Set<string>()
+
+      for (const student of students) {
+        for (const comp of components) {
+          const val = parseFloat(scores[student.id]?.[comp.id] || '0')
+          if (isNaN(val) || val < 0) continue
+          const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
+          if (found) {
+            if (found.score !== val) {
+              batch.update(doc(db, 'grades', found.id), { score: val })
+            }
+            newSet.add(found.id)
+          } else {
+            const ref = doc(collection(db, 'grades'))
+            batch.set(ref, { studentId: student.id, classId: selectedClassId, componentId: comp.id, score: val, maxScore: 100 } satisfies Omit<GradeScore, 'id'>)
+            newSet.add(ref.id)
+          }
+        }
+      }
+      existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => batch.delete(doc(db, 'grades', eg.id)))
+      await batch.commit()
+      setDirty(false)
+    } catch {} finally { setSaving(false) }
+  }, [selectedClassId, students, components, scores, dirty])
+
+  useEffect(() => {
+    if (!dirty) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(autoSave, 3000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [dirty, autoSave])
+
   function updateScore(studentId: string, componentId: string, value: string) {
     setScores(prev => ({
       ...prev,
       [studentId]: { ...prev[studentId], [componentId]: value },
     }))
+    setDirty(true)
   }
 
   function calcFinal(studentId: string): number {
