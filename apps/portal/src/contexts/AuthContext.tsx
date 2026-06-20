@@ -10,6 +10,7 @@ interface AuthContextValue {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -43,8 +44,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth)
   }
 
+  async function refreshUser() {
+    const user = auth.currentUser
+    if (user) {
+      const snap = await getDoc(doc(db, 'users', user.uid))
+      if (snap.exists()) {
+        setAppUser(snap.data() as AppUser)
+      }
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ firebaseUser, appUser, loading, signIn, logout }}>
+    <AuthContext.Provider value={{ firebaseUser, appUser, loading, signIn, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

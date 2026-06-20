@@ -4,8 +4,10 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, getAut
 import { db, type AppUser } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Profile({ user }: { user: AppUser }) {
+  const { refreshUser } = useAuth()
   const [name, setName] = useState(user.name)
   const [section, setSection] = useState(user.section || '')
   const [saving, setSaving] = useState(false)
@@ -22,6 +24,7 @@ export default function Profile({ user }: { user: AppUser }) {
       const updateData: Record<string, string> = { name: name.trim() }
       if (user.role === 'student') updateData.section = section.trim()
       await updateDoc(doc(db, 'users', user.id), updateData)
+      await refreshUser()
       showToast('Profile updated!', 'success')
     } catch {
       showToast('Failed to update profile.', 'error')
