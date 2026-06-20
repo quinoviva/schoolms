@@ -1,6 +1,6 @@
-﻿import { useEffect, useState } from 'react'
-import { collection, onSnapshot, getDocs } from 'firebase/firestore'
-import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord } from '@pbclc/shared'
+﻿import { useEffect, useState, useMemo } from 'react'
+import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestore'
+import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, type AcademicTerm } from '@pbclc/shared'
 import { GraduationCap, Users, School, Award, Layers, BookOpenCheck, CalendarDays, Loader2 } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 
@@ -78,6 +78,8 @@ export default function AdminDashboard() {
   const [enrollments, setEnrollments] = useState<number | null>(null)
   const [terms, setTerms] = useState(0)
   const [activeTerms, setActiveTerms] = useState(0)
+  const [termList, setTermList] = useState<AcademicTerm[]>([])
+  const [selectedTermId, setSelectedTermId] = useState('')
 
   const [gradeLevels, setGradeLevels] = useState<GradeLevelCount[]>([])
   const [teacherLoad, setTeacherLoad] = useState<TeacherLoad[]>([])
@@ -96,20 +98,26 @@ export default function AdminDashboard() {
     const unsubSections = onSnapshot(collection(db, 'sections'), snap => setSections(snap.size))
     const unsubEnroll = onSnapshot(collection(db, 'enrollments'), snap => setEnrollments(snap.size))
     const unsubTerms = onSnapshot(collection(db, 'terms'), snap => {
-      const all = snap.docs.map(d => d.data() as { isActive?: boolean })
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
+      setTermList(all)
       setTerms(all.length)
       setActiveTerms(all.filter(t => t.isActive).length)
     })
     return () => { unsubUsers(); unsubClasses(); unsubSubjects(); unsubSections(); unsubEnroll(); unsubTerms() }
   }, [])
 
+  const activeTermId = selectedTermId || termList.find(t => t.isActive)?.id || ''
+
   useEffect(() => {
     async function loadAnalytics() {
+      const classQuery = activeTermId ? query(collection(db, 'classes'), where('termId', '==', activeTermId)) : collection(db, 'classes')
+      const enrollQuery = activeTermId ? query(collection(db, 'enrollments'), where('termId', '==', activeTermId)) : collection(db, 'enrollments')
+
       const [userSnap, classSnap, subjSnap, enrollSnap, sectSnap, attSnap, gradeSnap] = await Promise.all([
         getDocs(collection(db, 'users')),
-        getDocs(collection(db, 'classes')),
+        getDocs(classQuery),
         getDocs(collection(db, 'subjects')),
-        getDocs(collection(db, 'enrollments')),
+        getDocs(enrollQuery),
         getDocs(collection(db, 'sections')),
         getDocs(collection(db, 'attendance')),
         getDocs(collection(db, 'grades')),
@@ -213,7 +221,7 @@ export default function AdminDashboard() {
       setAnalyticsLoaded(true)
     }
     loadAnalytics()
-  }, [])
+  }, [activeTermId])
 
   const loading = students === null || teachers === null || classes === null || subjects === null
 
@@ -227,6 +235,16 @@ export default function AdminDashboard() {
         Administrative Dashboard
       </h1>
       <p className="text-sm text-muted-foreground mb-7">Owly School Management System</p>
+
+      <div className="mb-6">
+        <select value={selectedTermId} onChange={e => setSelectedTermId(e.target.value)}
+          className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
+          <option value="">All Terms</option>
+          {termList.map(t => (
+            <option key={t.id} value={t.id}>{t.label} ({t.semester}){t.isActive ? ' • Active' : ''}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
         <StatCard icon={GraduationCap} label="Students" value={students ?? 0} />
