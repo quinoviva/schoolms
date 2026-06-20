@@ -40,7 +40,7 @@ export default function PortalLayout({
           </div>
           <div className="flex items-center gap-3 ml-auto">
             <ThemeToggle />
-            <button className="relative p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <button className="relative p-1.5 rounded-lg hover:bg-muted transition-colors cursor-default">
               <Bell size={15} className="text-muted-foreground" />
             </button>
             <div className="flex items-center gap-2">
