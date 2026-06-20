@@ -91,6 +91,20 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
   }, [user.id])
 
   useEffect(() => {
+    if (!classIds.length) return
+    const unsub = onSnapshot(
+      query(collection(db, 'gradeReleases'), where('classId', 'in', classIds)),
+      (snap) => {
+        snap.docs.forEach(d => {
+          const r = d.data() as { isReleased: boolean; classId: string }
+          if (r.isReleased) compute()
+        })
+      }
+    )
+    return unsub
+  }, [classIds])
+
+  useEffect(() => {
     async function compute() {
       if (!classIds.length) {
         setSubjectGrades([])
