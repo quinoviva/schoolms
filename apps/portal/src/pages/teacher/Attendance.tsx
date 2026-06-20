@@ -94,15 +94,34 @@ export default function Attendance({ user }: { user: AppUser }) {
         where('classId', '==', selectedClassId),
         where('date', '==', date),
       ))
-      existingSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
+      const existingMap: Record<string, string> = {}
+      existingSnap.docs.forEach(d => {
+        const data = d.data() as AttendanceRecord
+        existingMap[data.studentId] = d.id
+      })
 
+      const updated = new Set<string>()
       for (const [studentId, status] of Object.entries(attendance)) {
-        const ref = doc(collection(db, 'attendance'))
-        batch.set(ref, {
-          studentId, classId: selectedClassId, date, status,
-          remarks: '', recordedBy: user.id,
-        } satisfies Omit<AttendanceRecord, 'id'>)
+        const existingId = existingMap[studentId]
+        if (existingId) {
+          batch.update(doc(db, 'attendance', existingId), { status, recordedBy: user.id })
+          updated.add(existingId)
+        } else {
+          const ref = doc(collection(db, 'attendance'))
+          batch.set(ref, {
+            studentId, classId: selectedClassId, date, status,
+            remarks: '', recordedBy: user.id,
+          } satisfies Omit<AttendanceRecord, 'id'>)
+          updated.add(ref.id)
+        }
       }
+
+      Object.entries(existingMap).forEach(([sid, docId]) => {
+        if (!(sid in attendance)) {
+          batch.delete(doc(db, 'attendance', docId))
+        }
+      })
+
       await batch.commit()
       showToast('Attendance saved!', 'success')
     } catch (err) {
