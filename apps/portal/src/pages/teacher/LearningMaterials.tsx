@@ -175,7 +175,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
                   <ExternalLink size={11} /> Open in Drive
                 </a>
                 <button onClick={() => setDeleteTarget({ id: m.id, title: m.title })}
-                  className="text-xs text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all">
+                  className="text-xs text-red-400 hover:text-red-600 lg:opacity-0 lg:group-hover:opacity-100 transition-all">
                   <Trash2 size={13} />
                 </button>
               </div>
