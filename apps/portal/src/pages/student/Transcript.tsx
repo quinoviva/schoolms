@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser } from '@pbclc/shared'
+import { db, type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser, type GradeRelease } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface TermRecord {
@@ -13,6 +13,7 @@ interface TermRecord {
 export default function Transcript({ user }: { user: AppUser }) {
   const [classIds, setClassIds] = useState<string[]>([])
   const [allScores, setAllScores] = useState<GradeScore[]>([])
+  const [releasedSet, setReleasedSet] = useState<Set<string>>(new Set())
   const [records, setRecords] = useState<TermRecord[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -37,6 +38,22 @@ export default function Transcript({ user }: { user: AppUser }) {
   }, [user.id])
 
   useEffect(() => {
+    if (!classIds.length) { setReleasedSet(new Set()); return }
+    const unsub = onSnapshot(
+      query(collection(db, 'gradeReleases'), where('classId', 'in', classIds)),
+      (snap) => {
+        const s = new Set<string>()
+        snap.docs.forEach(d => {
+          const r = d.data() as GradeRelease
+          if (r.isReleased) s.add(r.classId)
+        })
+        setReleasedSet(s)
+      }
+    )
+    return unsub
+  }, [classIds])
+
+  useEffect(() => {
     async function compute() {
       if (!classIds.length) {
         setRecords([])
@@ -51,6 +68,7 @@ export default function Transcript({ user }: { user: AppUser }) {
       for (const term of terms) {
         const termClasses: { subject: Subject; grade: number }[] = []
         for (const cid of classIds) {
+          if (!releasedSet.has(cid)) continue
           const classSnap = await getDoc(doc(db, 'classes', cid))
           if (!classSnap.exists()) continue
           const cls = { id: classSnap.id, ...classSnap.data() } as Class
@@ -76,7 +94,7 @@ export default function Transcript({ user }: { user: AppUser }) {
       setLoading(false)
     }
     compute()
-  }, [classIds, allScores])
+  }, [classIds, allScores, releasedSet])
 
   function handlePrint() {
     window.print()
