@@ -1,10 +1,10 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, onSnapshot, getDocs } from 'firebase/firestore'
-import { db } from '@pbclc/shared'
+import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord } from '@pbclc/shared'
 import { GraduationCap, Users, School, Award, Layers, BookOpenCheck, CalendarDays, Loader2 } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
+function StatCard({ icon: Icon, label, value }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number }) {
   return (
     <div className="bg-card rounded-xl border border-border p-5 flex gap-4 items-start shadow-sm">
       <div className="p-2.5 rounded-lg shrink-0 bg-[#1e3a5f]/8 text-[#1e3a5f]">
@@ -115,16 +115,16 @@ export default function AdminDashboard() {
         getDocs(collection(db, 'grades')),
       ])
 
-      const users = userSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-      const classList = classSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-      const subjList = subjSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-      const sectList = sectSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-      const enrollList = enrollSnap.docs.map(d => d.data() as any)
-      const attList = attSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
-      const gradeList = gradeSnap.docs.map(d => ({ id: d.id, ...d.data() as any }))
+      const users = userSnap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string }))
+      const classList = classSnap.docs.map(d => ({ id: d.id, ...d.data() } as Class & { id: string }))
+      const subjList = subjSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject & { id: string }))
+      const sectList = sectSnap.docs.map(d => ({ id: d.id, ...d.data() } as { name: string; gradeLevel?: string }))
+      const enrollList = enrollSnap.docs.map(d => d.data() as { studentId: string; classId: string })
+      const attList = attSnap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord & { id: string }))
+      const gradeList = gradeSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore & { id: string }))
 
-      const studentsData = users.filter((u: any) => u.role === 'student')
-      const teachersData = users.filter((u: any) => u.role === 'teacher')
+      const studentsData = users.filter(u => u.role === 'student')
+      const teachersData = users.filter(u => u.role === 'teacher')
 
       // Enrollment by grade level
       const sectionMap: Record<string, string> = {}
@@ -148,7 +148,7 @@ export default function AdminDashboard() {
       setTeacherLoad(
         Object.entries(loadMap)
           .map(([id, count]) => ({
-            name: teachersData.find((t: any) => t.id === id)?.name || id.slice(0, 8),
+            name: teachersData.find(t => t.id === id)?.name || id.slice(0, 8),
             count,
           }))
           .sort((a, b) => b.count - a.count)
@@ -164,8 +164,8 @@ export default function AdminDashboard() {
         }
         setAttendanceRates(
           Object.entries(attByClass).map(([cid, d]) => {
-            const cls = classList.find((c: any) => c.id === cid)
-            const subj = subjList.find((s: any) => s.id === cls?.subjectId)
+            const cls = classList.find(c => c.id === cid)
+            const subj = cls ? subjList.find(s => s.id === cls.subjectId) : undefined
             return {
               className: subj?.code || cid.slice(0, 8),
               rate: Math.round((d.present / d.total) * 100),
@@ -182,22 +182,29 @@ export default function AdminDashboard() {
           gradeByComp[g.componentId].total += (g.score / g.maxScore) * 100
           gradeByComp[g.componentId].count++
         }
-        const avgByClass: Record<string, { total: number; count: number }> = {}
+        const avgByClass: Record<string, number> = {}
         for (const g of gradeList) {
-          if (!avgByClass[g.classId]) avgByClass[g.classId] = { total: 0, count: 0 }
-          const avg = gradeByComp[g.componentId]
-          if (avg) {
-            avgByClass[g.classId].total += avg.total / avg.count
-            avgByClass[g.classId].count++
+          if (!avgByClass[g.classId]) {
+            const cls = classList.find(c => c.id === g.classId)
+            const subj = cls ? subjList.find(s => s.id === cls.subjectId) : undefined
+            if (!subj?.gradingComponents) continue
+            let weighted = 0
+            for (const comp of subj.gradingComponents) {
+              const stats = gradeByComp[comp.id]
+              if (stats) {
+                weighted += (stats.total / stats.count) * (comp.weight / 100)
+              }
+            }
+            avgByClass[g.classId] = Math.round(weighted)
           }
         }
         setSubjectAvgs(
-          Object.entries(avgByClass).map(([cid, d]) => {
-            const cls = classList.find((c: any) => c.id === cid)
-            const subj = subjList.find((s: any) => s.id === cls?.subjectId)
+          Object.entries(avgByClass).map(([cid, avg]) => {
+            const cls = classList.find(c => c.id === cid)
+            const subj = cls ? subjList.find(s => s.id === cls.subjectId) : undefined
             return {
               name: subj?.code || cid.slice(0, 8),
-              avg: Math.round(d.total / d.count),
+              avg,
             }
           }).sort((a, b) => b.avg - a.avg)
         )
