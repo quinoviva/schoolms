@@ -15,6 +15,8 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
   const [form, setForm] = useState({ section: '', schedule: '', room: '' })
   const [saving, setSaving] = useState(false)
 
+  const [search, setSearch] = useState('')
+
   const [editClass, setEditClass] = useState<Class | null>(null)
   const [editSchedule, setEditSchedule] = useState('')
   const [editRoom, setEditRoom] = useState('')
@@ -129,7 +131,19 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
     }
   }
 
-  const grouped = subjects.reduce<Record<string, Subject[]>>((acc, s) => {
+  const q = search.toLowerCase().trim()
+
+  const filteredSubjects = subjects.filter(s => {
+    if (!q) return true
+    const cls = getClassForSubject(s.id)
+    return s.code.toLowerCase().includes(q)
+      || s.title.toLowerCase().includes(q)
+      || (cls?.section.toLowerCase().includes(q))
+      || (cls?.schedule.toLowerCase().includes(q))
+      || (cls?.room.toLowerCase().includes(q))
+  })
+
+  const grouped = filteredSubjects.reduce<Record<string, Subject[]>>((acc, s) => {
     const level = s.gradeLevel || 'Ungrouped'
     if (!acc[level]) acc[level] = []
     acc[level].push(s)
@@ -147,10 +161,29 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
         <p className="text-sm text-muted-foreground mt-0.5">{user?.name}</p>
       </div>
 
-      {subjects.length === 0 && (
+      <div className="relative mb-6">
+        <input
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search by subject code, title, section, schedule, or room..."
+          className="w-full px-4 py-2.5 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-sm"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground">
+            Clear
+          </button>
+        )}
+      </div>
+
+      {subjects.length === 0 ? (
         <div className="text-center py-16 bg-card rounded-xl border border-border shadow-sm">
           <BookOpen size={40} className="mx-auto text-muted-foreground/40 mb-3" />
           <p className="text-muted-foreground text-sm">No subjects assigned yet. Contact the admin.</p>
+        </div>
+      ) : filteredSubjects.length === 0 && (
+        <div className="text-center py-16 bg-card rounded-xl border border-border shadow-sm">
+          <BookOpen size={40} className="mx-auto text-muted-foreground/40 mb-3" />
+          <p className="text-muted-foreground text-sm">No classes match your search.</p>
         </div>
       )}
 
