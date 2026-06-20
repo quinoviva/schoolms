@@ -3,15 +3,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @pbclc/portal dev & pnpm --filter @pbclc/admin dev",
+    "dev": "concurrently -n portal,admin -c blue,yellow \"pnpm dev:portal\" \"pnpm dev:admin\"",
     "dev:portal": "pnpm --filter @pbclc/portal dev",
     "dev:admin": "pnpm --filter @pbclc/admin dev",
-    "build": "pnpm --filter @pbclc/shared build && pnpm --filter @pbclc/portal build && pnpm --filter @pbclc/admin build"
+    "shared:build": "echo 'Shared is a source-level dep — no build needed'",
+    "build": "pnpm --filter @pbclc/portal build && pnpm --filter @pbclc/admin build"
   },
   "pnpm": {
     "overrides": {
       "vite": "6.3.5"
     },
-    "onlyBuiltDependencies": ["@firebase/util", "@tailwindcss/oxide", "esbuild", "protobufjs"]
+    "onlyBuiltDependencies": [
+      "@firebase/util",
+      "@tailwindcss/oxide",
+      "esbuild",
+      "protobufjs"
+    ]
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
   }
 }
