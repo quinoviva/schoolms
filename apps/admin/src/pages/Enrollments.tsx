@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc, writeBatch } from 'firebase/firestore'
 import { db, type Class, type Subject, type AppUser } from '@pbclc/shared'
 import { Search, X } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
@@ -9,7 +9,7 @@ import { showToast } from '../components/ui/toast'
 export default function Enrollments() {
   const [students, setStudents] = useState<{ id: string; name: string; section: string }[]>([])
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
-  const [enrollments, setEnrollments] = useState<{ studentId: string; classId: string }[]>([])
+  const [enrollments, setEnrollments] = useState<{ id?: string; studentId: string; classId: string }[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [subjectsLoaded, setSubjectsLoaded] = useState(false)
   const [classesLoaded, setClassesLoaded] = useState(false)
@@ -32,7 +32,7 @@ export default function Enrollments() {
     })
 
     const unsubEnrollments = onSnapshot(collection(db, 'enrollments'), snap => {
-      setEnrollments(snap.docs.map(d => d.data() as { studentId: string; classId: string }))
+      setEnrollments(snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; studentId: string; classId: string })))
     })
 
     return () => { unsubStudents(); unsubSubjects(); unsubEnrollments() }
@@ -96,13 +96,24 @@ export default function Enrollments() {
     if (!removeTarget) return
     const { studentId, classId } = removeTarget
     try {
-      const q = query(
-        collection(db, 'enrollments'),
-        where('studentId', '==', studentId),
-        where('classId', '==', classId),
-      )
-      const snap = await getDocs(q)
-      snap.docs.forEach(d => deleteDoc(doc(db, 'enrollments', d.id)))
+      const found = enrollments.find(e => e.studentId === studentId && e.classId === classId)
+      if (found?.id) {
+        await deleteDoc(doc(db, 'enrollments', found.id))
+      } else {
+        const q = query(collection(db, 'enrollments'), where('studentId', '==', studentId), where('classId', '==', classId))
+        const snap = await getDocs(q)
+        snap.docs.forEach(d => deleteDoc(doc(db, 'enrollments', d.id)))
+      }
+
+      const [gradesSnap, attSnap] = await Promise.all([
+        getDocs(query(collection(db, 'grades'), where('studentId', '==', studentId), where('classId', '==', classId))),
+        getDocs(query(collection(db, 'attendance'), where('studentId', '==', studentId), where('classId', '==', classId))),
+      ])
+      const batch = writeBatch(db)
+      gradesSnap.docs.forEach(d => batch.delete(doc(db, 'grades', d.id)))
+      attSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
+      await batch.commit()
+
       showToast('Enrollment removed', 'success')
     } catch {
       showToast('Failed to remove enrollment', 'error')
