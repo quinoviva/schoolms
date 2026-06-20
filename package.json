@@ -1,0 +1,17 @@
+{
+  "name": "pbclc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @pbclc/portal dev & pnpm --filter @pbclc/admin dev",
+    "dev:portal": "pnpm --filter @pbclc/portal dev",
+    "dev:admin": "pnpm --filter @pbclc/admin dev",
+    "build": "pnpm --filter @pbclc/shared build && pnpm --filter @pbclc/portal build && pnpm --filter @pbclc/admin build"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "6.3.5"
+    },
+    "onlyBuiltDependencies": ["@firebase/util", "@tailwindcss/oxide", "esbuild", "protobufjs"]
+  }
+}
