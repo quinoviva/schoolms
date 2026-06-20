@@ -64,33 +64,46 @@ export default function Transcript({ user }: { user: AppUser }) {
       const termsSnap = await getDocs(collection(db, 'terms'))
       const terms = termsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
 
+      const batchSize = 10
       const result: TermRecord[] = []
-      for (const term of terms) {
-        const termClasses: { subject: Subject; grade: number }[] = []
-        for (const cid of classIds) {
-          if (!releasedSet.has(cid)) continue
-          const classSnap = await getDoc(doc(db, 'classes', cid))
-          if (!classSnap.exists()) continue
-          const cls = { id: classSnap.id, ...classSnap.data() } as Class
-          if (cls.termId !== term.id) continue
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (!subjSnap.exists()) continue
-          const subject = { id: subjSnap.id, ...subjSnap.data() } as Subject
-          const scores = allScores.filter(s => s.classId === cid)
+      const released = classIds.filter(cid => releasedSet.has(cid))
+
+      for (let i = 0; i < released.length; i += batchSize) {
+        const batch = released.slice(i, i + batchSize)
+        const classPromises = batch.map(cid => getDoc(doc(db, 'classes', cid)))
+        const classSnaps = await Promise.all(classPromises)
+        const classes = classSnaps.filter(s => s.exists()).map(s => ({ id: s.id, ...s.data() } as Class))
+
+        const subjIds = [...new Set(classes.map(c => c.subjectId))]
+        const subjPromises = subjIds.map(sid => getDoc(doc(db, 'subjects', sid)))
+        const subjSnaps = await Promise.all(subjPromises)
+        const subjMap = new Map(subjSnaps.filter(s => s.exists()).map(s => [s.id, { id: s.id, ...s.data() } as Subject]))
+
+        for (const cls of classes) {
+          const subject = subjMap.get(cls.subjectId)
+          if (!subject) continue
+          const scores = allScores.filter(s => s.classId === cls.id)
           let final = 0
           for (const comp of subject.gradingComponents) {
             const compScores = scores.filter(s => s.componentId === comp.id)
             const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
             final += avg * (comp.weight / 100)
           }
-          termClasses.push({ subject, grade: Math.round(final) })
-        }
-        if (termClasses.length) {
-          const gwa = termClasses.reduce((a, s) => a + s.grade, 0) / termClasses.length
-          result.push({ term, subjects: termClasses, gwa: Math.round(gwa * 100) / 100 })
+          result.push({ cls, subject, grade: Math.round(final) })
         }
       }
-      setRecords(result)
+
+      const recordsByTerm = new Map<string, TermRecord>()
+      for (const term of terms) {
+        const termClasses = result
+          .filter(r => r.cls.termId === term.id)
+          .map(r => ({ subject: r.subject, grade: r.grade }))
+        if (termClasses.length) {
+          const gwa = Math.round(termClasses.reduce((a, s) => a + s.grade, 0) / termClasses.length * 100) / 100
+          recordsByTerm.set(term.id, { term, subjects: termClasses, gwa })
+        }
+      }
+      setRecords([...recordsByTerm.values()])
       setLoading(false)
     }
     compute()

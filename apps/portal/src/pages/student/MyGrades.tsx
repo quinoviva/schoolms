@@ -63,22 +63,32 @@ export default function MyGrades({ user }: { user: AppUser }) {
         return
       }
 
+      const batchSize = 10
       const result: SubjectWithGrades[] = []
-      for (const cid of classIds) {
-        const classSnap = await getDoc(doc(db, 'classes', cid))
-        if (!classSnap.exists()) continue
-        const cls = { id: classSnap.id, ...classSnap.data() } as Class
-        const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-        if (!subjSnap.exists()) continue
-        const subject = { id: subjSnap.id, ...subjSnap.data() } as Subject
-        const scores = allScores.filter(s => s.classId === cid)
-        let final = 0
-        for (const comp of subject.gradingComponents) {
-          const compScores = scores.filter(s => s.componentId === comp.id)
-          const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
-          final += avg * (comp.weight / 100)
+
+      for (let i = 0; i < classIds.length; i += batchSize) {
+        const batch = classIds.slice(i, i + batchSize)
+        const classPromises = batch.map(cid => getDoc(doc(db, 'classes', cid)))
+        const classSnaps = await Promise.all(classPromises)
+        const classes = classSnaps.filter(s => s.exists()).map(s => ({ id: s.id, ...s.data() } as Class))
+
+        const subjIds = [...new Set(classes.map(c => c.subjectId))]
+        const subjPromises = subjIds.map(sid => getDoc(doc(db, 'subjects', sid)))
+        const subjSnaps = await Promise.all(subjPromises)
+        const subjMap = new Map(subjSnaps.filter(s => s.exists()).map(s => [s.id, { id: s.id, ...s.data() } as Subject]))
+
+        for (const cls of classes) {
+          const subject = subjMap.get(cls.subjectId)
+          if (!subject) continue
+          const scores = allScores.filter(s => s.classId === cls.id)
+          let final = 0
+          for (const comp of subject.gradingComponents) {
+            const compScores = scores.filter(s => s.componentId === comp.id)
+            const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
+            final += avg * (comp.weight / 100)
+          }
+          result.push({ subject, scores, final: Math.round(final), released: releasedSet.has(cls.id), classId: cls.id })
         }
-        result.push({ subject, scores, final: Math.round(final), released: releasedSet.has(cid), classId: cid })
       }
       setSubjects(result)
       setLoading(false)
