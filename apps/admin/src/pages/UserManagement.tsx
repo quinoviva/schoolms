@@ -1,8 +1,10 @@
 ﻿import { useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { createUserWithEmailAndPassword } from 'firebase/auth'
-import { db, auth, type AppUser, type Role } from '@pbclc/shared'
-import { Search, Plus, AlertTriangle, Pencil, Upload, Users, CheckCircle, XCircle } from 'lucide-react'
+import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth'
+import { httpsCallable } from 'firebase/functions'
+import { db, auth, functions, type AppUser, type Role } from '@pbclc/shared'
+import { Search, Plus, AlertTriangle, Pencil, Upload, Users, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
@@ -27,6 +29,9 @@ export default function UserManagement() {
   const [editTarget, setEditTarget] = useState<{ id: string; name: string; section: string; role: Role } | null>(null)
   const [editForm, setEditForm] = useState({ name: '', section: '', role: 'student' as Role })
   const [editSaving, setEditSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 25
+
   const [importing, setImporting] = useState(false)
   const [showBulkForm, setShowBulkForm] = useState(false)
   const [bulkData, setBulkData] = useState('')
@@ -73,6 +78,12 @@ export default function UserManagement() {
     const { id } = deleteTarget
     try {
       await deleteDoc(doc(db, 'users', id))
+      try {
+        const deleteAuthUser = httpsCallable(functions, 'deleteAuthUser')
+        await deleteAuthUser({ uid: id })
+      } catch {
+        // Cloud Function not deployed — Auth account remains
+      }
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'delete', 'users', id, 'Deleted user: ' + deleteTarget.name)
       showToast('User deleted successfully', 'success')
     } catch {
@@ -110,6 +121,14 @@ export default function UserManagement() {
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.role.toLowerCase().includes(search.toLowerCase())
   )
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  function handleSearch(v: string) {
+    setSearch(v)
+    setPage(1)
+  }
 
   function handleExportCSV() {
     const headers = ['Name', 'Email', 'Role', 'Section']
@@ -344,7 +363,7 @@ export default function UserManagement() {
         <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-secondary/20">
           <Search size={14} className="text-muted-foreground shrink-0" />
           <input type="text" placeholder="Search by name, email, or roleâ€¦" value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => handleSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
         </div>
         <table className="w-full text-sm">
@@ -357,7 +376,7 @@ export default function UserManagement() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map(u => (
+            {paginated.map(u => (
               <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                 <td className="px-5 py-3.5">
                   <p className="font-semibold text-foreground">{u.name}</p>
@@ -385,8 +404,19 @@ export default function UserManagement() {
             ))}
           </tbody>
         </table>
-        <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground">
-          Showing {filtered.length} of {users.length} users
+        <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
+          <span>Showing {paginated.length} of {filtered.length} users</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
+              className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="font-medium">{safePage} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
+              className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
+              <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
