@@ -14,6 +14,7 @@ const NAV: Record<Role, { icon: LucideIcon; label: string; path: string }[]> = {
     { icon: User, label: 'Profile', path: 'profile' },
   ],
   teacher: [
+    { icon: LayoutDashboard, label: 'Dashboard', path: 'dashboard' },
     { icon: School, label: 'My Classes', path: 'classes' },
     { icon: Calendar, label: 'Schedule', path: 'schedule' },
     { icon: Grid3x3, label: 'Seat Plan', path: 'seatplan' },

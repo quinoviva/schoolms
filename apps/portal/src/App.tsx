@@ -7,6 +7,7 @@ import StudentDashboard from './pages/student/StudentDashboard'
 import MyGrades from './pages/student/MyGrades'
 import Transcript from './pages/student/Transcript'
 import TeacherClasses from './pages/teacher/TeacherClasses'
+import TeacherDashboard from './pages/teacher/TeacherDashboard'
 import Attendance from './pages/teacher/Attendance'
 import GradeEntry from './pages/teacher/GradeEntry'
 import SeatPlan from './pages/teacher/SeatPlan'
@@ -54,8 +55,10 @@ function AppRoutes() {
         return <Announcements user={user} />
       case 'profile':
         return <Profile user={user} />
+      case 'classes':
+        return <TeacherClasses user={user} onNav={setPage} />
       default:
-        if (user.role === 'teacher') return <TeacherClasses user={user} onNav={setPage} />
+        if (user.role === 'teacher') return <TeacherDashboard user={user} onNav={setPage} />
         return <StudentDashboard user={user} />
     }
   }
