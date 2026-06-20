@@ -52,12 +52,17 @@ export default function Schedule({ user }: { user: AppUser }) {
   useEffect(() => {
     async function load() {
       if (user.role === 'teacher') {
-        return loadTeacherSchedule()
+        const unsub = loadTeacherSchedule()
+        setLoading(false)
+        return unsub
       } else {
-        return loadStudentSchedule()
+        const unsub = loadStudentSchedule()
+        setLoading(false)
+        return unsub
       }
     }
-    load().finally(() => setLoading(false))
+    const unsubPromise = load()
+    return () => { unsubPromise.then(u => u?.()) }
   }, [user])
 
   function loadTeacherSchedule() {

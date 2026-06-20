@@ -56,41 +56,56 @@ export default function Announcements({ user }: { user: AppUser }) {
       )
       return unsub
     } else {
+      let unsubAnnounce: (() => void) | null = null
       const unsubEnroll = onSnapshot(
         query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
-        async (enrollSnap) => {
-          if (enrollSnap.empty) { setAnnouncements([]); setLoading(false); return }
+        (enrollSnap) => {
           const classIds = enrollSnap.docs.map(d => (d.data() as Enrollment).classId)
-          if (!classIds.length) { setAnnouncements([]); setLoading(false); return }
-          const unsubAnnounce = onSnapshot(
-            query(collection(db, 'announcements'), where('classId', 'in', classIds), orderBy('createdAt', 'desc')),
-            async (annSnap) => {
-              const list = await Promise.all(
-                annSnap.docs.map(async (d) => {
-                  const a = { id: d.id, ...d.data() } as Announcement
-                  let teacherName = ''
-                  let className = ''
-                  const userSnap = await getDoc(doc(db, 'users', a.teacherId))
-                  if (userSnap.exists()) teacherName = userSnap.data().name || ''
-                  const classSnap = await getDoc(doc(db, 'classes', a.classId))
-                  if (classSnap.exists()) {
-                    const clsData = classSnap.data() as Class
-                    const subjSnap = await getDoc(doc(db, 'subjects', clsData.subjectId))
-                    if (subjSnap.exists()) className = (subjSnap.data() as Subject).code
-                  }
-                  return { ...a, teacherName, className }
-                })
-              )
-              setAnnouncements(list)
-              setLoading(false)
-            }
-          )
-          return unsubAnnounce
+          setClassIdsSnapshot(classIds)
         }
       )
-      return () => { unsubEnroll() }
+      return () => {
+        unsubEnroll()
+        unsubAnnounce?.()
+      }
     }
   }, [user])
+
+  const [classIdsSnapshot, setClassIdsSnapshot] = useState<string[]>([])
+
+  useEffect(() => {
+    if (classIdsSnapshot.length === 0) {
+      setAnnouncements([])
+      setLoading(false)
+      return
+    }
+    const batchSize = 10
+    const classIds = classIdsSnapshot.slice(0, batchSize)
+    const unsub = onSnapshot(
+      query(collection(db, 'announcements'), where('classId', 'in', classIds), orderBy('createdAt', 'desc')),
+      async (annSnap) => {
+        const list = await Promise.all(
+          annSnap.docs.map(async (d) => {
+            const a = { id: d.id, ...d.data() } as Announcement
+            let teacherName = ''
+            let className = ''
+            const userSnap = await getDoc(doc(db, 'users', a.teacherId))
+            if (userSnap.exists()) teacherName = userSnap.data().name || ''
+            const classSnap = await getDoc(doc(db, 'classes', a.classId))
+            if (classSnap.exists()) {
+              const clsData = classSnap.data() as Class
+              const subjSnap = await getDoc(doc(db, 'subjects', clsData.subjectId))
+              if (subjSnap.exists()) className = (subjSnap.data() as Subject).code
+            }
+            return { ...a, teacherName, className }
+          })
+        )
+        setAnnouncements(list)
+        setLoading(false)
+      }
+    )
+    return unsub
+  }, [classIdsSnapshot])
 
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
