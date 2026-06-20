@@ -16,6 +16,7 @@ import LearningMaterials from './pages/teacher/LearningMaterials'
 import StudentMaterials from './pages/student/StudentMaterials'
 import Schedule from './pages/Schedule'
 import Announcements from './pages/Announcements'
+import Assignments from './pages/Assignments'
 import Profile from './pages/Profile'
 import ToastContainer from './components/ui/ToastContainer'
 
@@ -46,6 +47,8 @@ function AppRoutes() {
         return user.role === 'teacher' ? <LearningMaterials user={user} /> : <StudentMaterials user={user} />
       case 'schedule':
         return <Schedule user={user} />
+      case 'assignments':
+        return <Assignments user={user} />
       case 'announcements':
         return <Announcements user={user} />
       case 'profile':

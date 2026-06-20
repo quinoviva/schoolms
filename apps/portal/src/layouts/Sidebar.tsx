@@ -1,4 +1,4 @@
-﻿import { LogOut, LayoutDashboard, BookOpen, FileText, School, CheckCircle2, PenLine, Calendar, Megaphone, User, Grid3x3, ClipboardCheck, FileSpreadsheet, FolderOpen } from 'lucide-react'
+﻿import { LogOut, LayoutDashboard, BookOpen, FileText, School, CheckCircle2, PenLine, Calendar, Megaphone, User, Grid3x3, ClipboardCheck, FileSpreadsheet, FolderOpen, ClipboardList } from 'lucide-react'
 import type { AppUser, Role } from '@pbclc/shared'
 import type { LucideIcon } from 'lucide-react'
 
@@ -8,6 +8,7 @@ const NAV: Record<Role, { icon: LucideIcon; label: string; path: string }[]> = {
     { icon: BookOpen, label: 'My Grades', path: 'grades' },
     { icon: FileText, label: 'Transcript', path: 'transcript' },
     { icon: Calendar, label: 'Schedule', path: 'schedule' },
+    { icon: ClipboardList, label: 'Assignments', path: 'assignments' },
     { icon: FolderOpen, label: 'Materials', path: 'materials' },
     { icon: Megaphone, label: 'Announcements', path: 'announcements' },
     { icon: User, label: 'Profile', path: 'profile' },
@@ -20,13 +21,12 @@ const NAV: Record<Role, { icon: LucideIcon; label: string; path: string }[]> = {
     { icon: PenLine, label: 'Grade Entry', path: 'grades' },
     { icon: ClipboardCheck, label: 'Report Cards', path: 'reportcards' },
     { icon: FileSpreadsheet, label: 'Class Sheets', path: 'classsheets' },
+    { icon: ClipboardList, label: 'Assignments', path: 'assignments' },
     { icon: FolderOpen, label: 'Materials', path: 'materials' },
     { icon: Megaphone, label: 'Announcements', path: 'announcements' },
     { icon: User, label: 'Profile', path: 'profile' },
   ],
-  admin: [
-    { icon: LayoutDashboard, label: 'Dashboard', path: 'dashboard' },
-  ],
+  admin: [],
 }
 
 function initials(name: string) {
