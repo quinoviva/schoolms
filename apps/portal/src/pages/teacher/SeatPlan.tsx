@@ -2,6 +2,7 @@
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, setDoc, writeBatch, updateDoc } from 'firebase/firestore'
 import { db, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
 import { showToast } from '../../components/ui/toast'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Smartphone, Plus, GripHorizontal, Monitor, Hash } from 'lucide-react'
 
 const SEAT_W = 80
@@ -35,6 +36,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
   const [manualUid, setManualUid] = useState('')
   const [showManualInput, setShowManualInput] = useState(false)
+  const [deletingElementId, setDeletingElementId] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   const [dragTarget, setDragTarget] = useState<DragState | null>(null)
@@ -173,6 +175,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
 
   function removeElement(id: string) {
     setElements(prev => prev.filter(e => e.id !== id))
+    setDeletingElementId(null)
   }
 
   function assignStudentToSeat(seatId: string, studentId: string | null) {
@@ -300,7 +303,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           className={`rounded-lg bg-[#1e3a5f] flex items-center justify-center shadow-md select-none ${isEdit ? 'hover:ring-2 hover:ring-[#c4a32a]' : ''}`}
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-xs font-semibold tracking-widest uppercase">{el.label || 'Blackboard'}</span>
-          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => removeElement(el.id)}
+          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">Ã—</button>}
         </div>
       )
@@ -312,7 +315,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           className={`rounded-lg bg-[#8b6914]/80 flex items-center justify-center shadow-sm select-none ${isEdit ? 'hover:ring-2 hover:ring-[#c4a32a]' : ''}`}
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-[0.6rem] font-semibold">{el.label || "Teacher's Desk"}</span>
-          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => removeElement(el.id)}
+          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">Ã—</button>}
         </div>
       )
@@ -606,6 +609,15 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           <p className="text-muted-foreground">Seat plan is empty. Switch to Edit to add seats.</p>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deletingElementId}
+        title="Delete Element"
+        message="Are you sure you want to remove this element? This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => { if (deletingElementId) removeElement(deletingElementId) }}
+        onCancel={() => setDeletingElementId(null)}
+      />
     </div>
   )
 }
