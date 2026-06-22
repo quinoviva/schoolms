@@ -6,10 +6,10 @@
     "school-a1540": {
       "hosting": {
         "portal": [
-          "school-a1540"
+          "school-ms"
         ],
         "admin": [
-          "school-a1540-admin"
+          "school-ms-admin"
         ]
       }
     }
