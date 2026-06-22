@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, orderBy, getDocs } from 'firebase/firestore'
 import { Megaphone, Plus, Send, X } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@academix/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -32,14 +32,7 @@ export default function Announcements({ user }: { user: AppUser }) {
     async function init() {
       if (user.role !== 'teacher') return
       const snap = await getDocs(query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)))
-      const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-      const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
-      const result = classData
-        .map(cls => {
-          const subject = subjectMap.get(cls.subjectId)
-          return subject ? { ...cls, subject } as Class & { subject: Subject } : null
-        })
-        .filter(Boolean) as (Class & { subject: Subject })[]
+      const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
       setTeacherClasses(result)
     }
     init()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
+import { db, fetchUsersByIds, mergeClassesWithSubjects, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface StudentInfo {
@@ -30,14 +30,7 @@ export default function ReportCards({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
-        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
-        const result = classData
-          .map(cls => {
-            const subject = subjectMap.get(cls.subjectId)
-            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
-          })
-          .filter(Boolean) as (Class & { subject: Subject })[]
+        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
         setClasses(result)
         if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
         setLoading(false)

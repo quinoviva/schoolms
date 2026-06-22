@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@academix/shared'
+import { db, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@academix/shared'
 import { CheckCircle2 } from 'lucide-react'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
@@ -25,14 +25,7 @@ export default function Attendance({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
-        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
-        const result = classData
-          .map(cls => {
-            const subject = subjectMap.get(cls.subjectId)
-            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
-          })
-          .filter(Boolean) as (Class & { subject: Subject })[]
+        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
         setClasses(result)
         if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
         setLoading(false)

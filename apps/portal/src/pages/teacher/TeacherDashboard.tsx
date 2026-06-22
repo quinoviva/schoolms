@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { School, Users, CheckCircle2, TrendingUp, Calendar } from 'lucide-react'
-import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject } from '@academix/shared'
+import { db, mergeClassesWithSubjects, type AppUser, type Class, type Subject } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
@@ -30,14 +30,7 @@ export default function TeacherDashboard({ user, onNav }: { user: AppUser; onNav
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
-        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
-        const result = classData
-          .map(cls => {
-            const subject = subjectMap.get(cls.subjectId)
-            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
-          })
-          .filter(Boolean) as (Class & { subject: Subject })[]
+        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
         setClasses(result)
 
         const classIds = result.map(c => c.id)
