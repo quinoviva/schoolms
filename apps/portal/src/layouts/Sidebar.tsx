@@ -1,5 +1,5 @@
-﻿import { LogOut, LayoutDashboard, BookOpen, FileText, School, CheckCircle2, PenLine, Calendar, Megaphone, User, Grid3x3, ClipboardCheck, FileSpreadsheet, FolderOpen, ClipboardList } from 'lucide-react'
-import type { AppUser, Role } from '@pbclc/shared'
+import { LogOut, LayoutDashboard, BookOpen, FileText, School, CheckCircle2, PenLine, Calendar, Megaphone, User, Grid3x3, ClipboardCheck, FileSpreadsheet, FolderOpen, ClipboardList } from 'lucide-react'
+import type { AppUser, Role } from '@academix/shared'
 import type { LucideIcon } from 'lucide-react'
 
 const NAV: Record<Role, { icon: LucideIcon; label: string; path: string }[]> = {
@@ -28,6 +28,7 @@ const NAV: Record<Role, { icon: LucideIcon; label: string; path: string }[]> = {
     { icon: User, label: 'Profile', path: 'profile' },
   ],
   admin: [],
+  super_admin: [],
 }
 
 function initials(name: string) {
@@ -50,7 +51,7 @@ export default function Sidebar({
           </div>
           <div className="min-w-0">
             <p className="text-white font-bold text-sm leading-tight truncate">
-              Owly School
+              ACADEMIX
             </p>
             <p className="text-white/40 text-[0.65rem]">Management System</p>
           </div>

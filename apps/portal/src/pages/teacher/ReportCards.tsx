@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface StudentInfo {
@@ -19,6 +19,7 @@ interface StudentReport {
 }
 
 export default function ReportCards({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [students, setStudents] = useState<StudentReport[]>([])
@@ -27,7 +28,7 @@ export default function ReportCards({ user }: { user: AppUser }) {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -123,7 +124,7 @@ export default function ReportCards({ user }: { user: AppUser }) {
       {students.map(({ student, scores, final, transmuted, descriptor }) => (
         <div key={student.id} className="report-card bg-white rounded-xl border border-border shadow-sm mb-6 p-8">
           <div className="text-center mb-6 border-b-2 border-[#1e3a5f] pb-4">
-            <h2 className="text-lg font-bold text-[#1e3a5f]">Owly School Management System</h2>
+            <h2 className="text-lg font-bold text-[#1e3a5f]">ACADEMIX</h2>
             <p className="text-xs text-muted-foreground">Student Report Card</p>
           </div>
 

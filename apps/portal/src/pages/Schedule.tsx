@@ -1,7 +1,7 @@
-﻿import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { CalendarDays } from 'lucide-react'
-import { db, fetchSubjectsByIds, fetchDocsByIds, type AppUser, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchDocsByIds, type AppUser, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 
 interface ScheduleItem {
@@ -46,6 +46,7 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
 }
 
 export default function Schedule({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [items, setItems] = useState<ScheduleItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -63,11 +64,11 @@ export default function Schedule({ user }: { user: AppUser }) {
     }
     const unsubPromise = load()
     return () => { unsubPromise.then(u => u?.()) }
-  }, [user])
+  }, [user, schoolId])
 
   function loadTeacherSchedule() {
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -95,7 +96,7 @@ export default function Schedule({ user }: { user: AppUser }) {
 
   function loadStudentSchedule() {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const enrollmentIds = snap.docs.map(d => (d.data() as Enrollment).classId)
         if (!enrollmentIds.length) { setItems([]); return }
@@ -157,7 +158,7 @@ export default function Schedule({ user }: { user: AppUser }) {
               </div>
               <div className="space-y-2">
                 {grid[day].length === 0 && (
-                  <p className="text-[0.6rem] text-muted-foreground text-center py-4">â€”</p>
+                  <p className="text-[0.6rem] text-muted-foreground text-center py-4">—</p>
                 )}
                 {grid[day].map(item => (
                   <ScheduleCard key={item.classId + day} item={item} />

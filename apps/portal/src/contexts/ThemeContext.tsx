@@ -1,5 +1,5 @@
-﻿import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { ThemeMode } from '@pbclc/shared'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import type { ThemeMode } from '@academix/shared'
 
 interface ThemeContextValue {
   theme: ThemeMode
@@ -9,7 +9,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function getInitialTheme(): ThemeMode {
-  const stored = localStorage.getItem('pbclc-theme')
+  const stored = localStorage.getItem('academix-theme')
   if (stored === 'dark' || stored === 'light') return stored
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
@@ -20,7 +20,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem('pbclc-theme', theme)
+    localStorage.setItem('academix-theme', theme)
   }, [theme])
 
   function toggle() {

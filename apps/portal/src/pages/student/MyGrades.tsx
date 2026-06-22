@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import { BookOpen, Lock } from 'lucide-react'
-import { db, type GradeScore, type Subject, type Class, type AppUser, type GradeRelease } from '@pbclc/shared'
+import { db, type GradeScore, type Subject, type Class, type AppUser, type GradeRelease } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface SubjectWithGrades {
@@ -13,6 +13,7 @@ interface SubjectWithGrades {
 }
 
 export default function MyGrades({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classIds, setClassIds] = useState<string[]>([])
   const [allScores, setAllScores] = useState<GradeScore[]>([])
   const [releasedSet, setReleasedSet] = useState<Set<string>>(new Set())
@@ -21,23 +22,23 @@ export default function MyGrades({ user }: { user: AppUser }) {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setClassIds(snap.docs.map(d => d.data().classId))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id)),
+      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     if (!classIds.length) { setReleasedSet(new Set()); return }
@@ -132,7 +133,7 @@ export default function MyGrades({ user }: { user: AppUser }) {
                       return (
                         <div key={comp.id} className="text-center p-3 rounded-lg bg-secondary/50">
                           <p className="text-xs text-muted-foreground">{comp.name}</p>
-                          <p className="text-xl font-bold text-[#1e3a5f]">{compScores.length ? avg : '—'}</p>
+                          <p className="text-xl font-bold text-[#1e3a5f]">{compScores.length ? avg : '�'}</p>
                           <p className="text-[0.65rem] text-muted-foreground">{comp.weight}% weight</p>
                         </div>
                       )
@@ -141,7 +142,7 @@ export default function MyGrades({ user }: { user: AppUser }) {
                   <div className="flex items-center justify-between pt-3 border-t border-border">
                     <span className="text-sm text-muted-foreground">Final Grade</span>
                     <span className={`text-2xl font-bold ${final >= 75 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      {final || '—'}
+                      {final || '�'}
                     </span>
                   </div>
                 </div>

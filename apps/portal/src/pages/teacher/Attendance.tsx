@@ -1,6 +1,6 @@
-﻿import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@academix/shared'
 import { CheckCircle2 } from 'lucide-react'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
@@ -10,6 +10,7 @@ function initials(name: string) {
 }
 
 export default function Attendance({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [students, setStudents] = useState<{ id: string; name: string }[]>([])
@@ -22,7 +23,7 @@ export default function Attendance({ user }: { user: AppUser }) {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -110,7 +111,7 @@ export default function Attendance({ user }: { user: AppUser }) {
           const ref = doc(collection(db, 'attendance'))
           batch.set(ref, {
             studentId, classId: selectedClassId, date, status: sanitizedStatus,
-            remarks: '', recordedBy: user.id,
+            remarks: '', recordedBy: user.id, schoolId,
           } satisfies Omit<AttendanceRecord, 'id'>)
           updated.add(ref.id)
         }
@@ -151,7 +152,7 @@ export default function Attendance({ user }: { user: AppUser }) {
             Daily Attendance
           </h1>
           {selectedClass && (
-            <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} Â· {selectedClass.section}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} · {selectedClass.section}</p>
           )}
         </div>
         <button
@@ -170,7 +171,7 @@ export default function Attendance({ user }: { user: AppUser }) {
           className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25"
         >
           {classes.map(c => (
-            <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section}</option>
+            <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>
           ))}
         </select>
         <input
@@ -217,7 +218,7 @@ export default function Attendance({ user }: { user: AppUser }) {
           </div>
         ))}
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex justify-between">
-          <span>{students.length} students Â· {date}</span>
+          <span>{students.length} students · {date}</span>
         </div>
       </div>
     </div>

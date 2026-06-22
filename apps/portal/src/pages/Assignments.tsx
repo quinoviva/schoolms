@@ -1,12 +1,13 @@
-﻿import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { BookOpen, CheckCircle2, Clock, FileText, Upload, Download, Paperclip } from 'lucide-react'
-import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
 export default function Assignments({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [teacherClasses, setTeacherClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -32,7 +33,7 @@ export default function Assignments({ user }: { user: AppUser }) {
   useEffect(() => {
     if (user.role !== 'teacher') return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -95,6 +96,7 @@ export default function Assignments({ user }: { user: AppUser }) {
         description: sanitizeString(description, 5000),
         dueDate,
         maxScore: sanitizeNumber(maxScore, 1, 1000),
+        schoolId,
         createdAt: Date.now(),
       } satisfies Omit<Assignment, 'id'>)
       setTitle('')
@@ -129,6 +131,7 @@ export default function Assignments({ user }: { user: AppUser }) {
         fileUrl: sanitizeString(fileUrl, 500),
         fileName: sanitizeString(fileName, 200),
         score: null,
+        schoolId,
         submittedAt: Date.now(),
         gradedAt: null,
       } satisfies Omit<Submission, 'id'>)
@@ -181,7 +184,7 @@ export default function Assignments({ user }: { user: AppUser }) {
           >
             <option value="">Choose a class...</option>
             {teacherClasses.map(c => (
-              <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section}</option>
+              <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>
             ))}
           </select>
         </div>
@@ -396,12 +399,13 @@ export default function Assignments({ user }: { user: AppUser }) {
 }
 
 function StudentClassSelector({ user, selectedClassId, onSelect }: { user: AppUser; selectedClassId: string; onSelect: (id: string) => void }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<{ id: string; label: string }[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classIds = snap.docs.map(d => (d.data() as Enrollment).classId)
         if (!classIds.length) { setClasses([]); setLoading(false); return }
@@ -411,7 +415,7 @@ function StudentClassSelector({ user, selectedClassId, onSelect }: { user: AppUs
         const result = [...classesMap.values()]
           .map(cls => {
             const subject = subjectsMap.get(cls.subjectId)
-            return subject ? { id: cls.id!, label: `${subject.code} — ${cls.section}` } : null
+            return subject ? { id: cls.id!, label: `${subject.code} � ${cls.section}` } : null
           })
           .filter(Boolean) as { id: string; label: string }[]
         setClasses(result)
@@ -489,7 +493,7 @@ function StudentAssignmentCard({ assignment, user, submittingId, submissionText,
             <div className="mt-3 pt-3 border-t border-border">
               <span className={`text-xs font-semibold flex items-center gap-1.5 ${submission.score !== null ? 'text-emerald-600' : 'text-amber-600'}`}>
                 <CheckCircle2 size={13} />
-                {submission.score !== null ? `Score: ${submission.score} / ${assignment.maxScore}` : 'Submitted â€” Pending grading'}
+                {submission.score !== null ? `Score: ${submission.score} / ${assignment.maxScore}` : 'Submitted — Pending grading'}
               </span>
             </div>
           )}

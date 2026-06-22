@@ -1,13 +1,14 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
 import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
-import { db, auth, functions, sanitizeString, type AppUser, type Role } from '@pbclc/shared'
+import { db, auth, functions, sanitizeString, type AppUser, type Role } from '@academix/shared'
 import { Search, Plus, AlertTriangle, Pencil, Upload, Users, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
 import { createAuditLog } from '../utils/auditLog'
+import { useAuth } from '../contexts/AuthContext'
 
 const ROLE_STYLES: Record<string, string> = {
   Student: 'bg-blue-50 text-blue-700',
@@ -16,6 +17,8 @@ const ROLE_STYLES: Record<string, string> = {
 }
 
 export default function UserManagement() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [users, setUsers] = useState<(AppUser & { id: string })[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -43,8 +46,8 @@ export default function UserManagement() {
   async function loadPage(pageNum: number) {
     setLoading(true)
     const cursor = pageCursors[pageNum - 1] || null
-    let q = query(collection(db, 'users'), orderBy('name'), limit(PAGE_SIZE))
-    if (cursor) q = query(collection(db, 'users'), orderBy('name'), startAfter(cursor), limit(PAGE_SIZE))
+    let q = query(collection(db, 'users'), where('schoolId', '==', schoolId), orderBy('name'), limit(PAGE_SIZE))
+    if (cursor) q = query(collection(db, 'users'), where('schoolId', '==', schoolId), orderBy('name'), startAfter(cursor), limit(PAGE_SIZE))
     const snap = await getDocs(q)
     const results = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string }))
     setUsers(results)
@@ -55,7 +58,7 @@ export default function UserManagement() {
     setLoading(false)
   }
 
-  useEffect(() => { loadPage(1) }, [])
+  useEffect(() => { if (schoolId) loadPage(1) }, [schoolId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -69,6 +72,7 @@ export default function UserManagement() {
         name: sanitizeString(form.name, 100),
         role: form.role,
         section: form.role === 'student' ? sanitizeString(form.section, 50) : '',
+        schoolId,
         createdAt: Date.now(),
       } satisfies AppUser)
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Created user: ' + form.name)
@@ -92,7 +96,6 @@ export default function UserManagement() {
         const deleteAuthUser = httpsCallable(functions, 'deleteAuthUser')
         await deleteAuthUser({ uid: id })
       } catch {
-        // Cloud Function not deployed — Auth account remains
       }
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'delete', 'users', id, 'Deleted user: ' + deleteTarget.name)
       showToast('User deleted successfully', 'success')
@@ -195,6 +198,7 @@ export default function UserManagement() {
             name: sanitizeString(name || email, 100),
             role,
             section: role === 'student' ? sanitizeString(section, 50) : '',
+            schoolId,
             createdAt: Date.now(),
           } satisfies AppUser)
           await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Imported user: ' + (name || email))
@@ -224,13 +228,13 @@ export default function UserManagement() {
         return { line: lineNum, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: ID,Last,First,Section,Birthday' }
       }
       const [idNum, lastName, firstName, section, birthdate] = parts
-      const email = `${idNum}@x`
+      const email = `${idNum}@schoolms.edu`
       const password = `${lastName}.${firstName}(${birthdate || ''})`
       const name = `${firstName} ${lastName}`
       try {
         const cred = await createUserWithEmailAndPassword(auth, email, password)
         await setDoc(doc(db, 'users', cred.user.uid), {
-          id: cred.user.uid, email: sanitizeString(email, 255), name: sanitizeString(name, 100), role: 'student', section: sanitizeString(section, 50), createdAt: Date.now(),
+          id: cred.user.uid, email: sanitizeString(email, 255), name: sanitizeString(name, 100), role: 'student', section: sanitizeString(section, 50), schoolId, createdAt: Date.now(),
         } satisfies AppUser)
         await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Bulk created: ' + name)
         return { line: lineNum, id: idNum, name, success: true }
@@ -409,7 +413,7 @@ export default function UserManagement() {
               <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                 <td className="px-5 py-3.5">
                   <p className="font-semibold text-foreground">{u.name}</p>
-                  <p className="text-xs text-muted-foreground">{u.section || 'â€”'}</p>
+                  <p className="text-xs text-muted-foreground">{u.section || '—'}</p>
                 </td>
                 <td className="px-4 py-3.5 text-muted-foreground text-xs hidden sm:table-cell">{u.email}</td>
                 <td className="px-4 py-3.5 text-center">

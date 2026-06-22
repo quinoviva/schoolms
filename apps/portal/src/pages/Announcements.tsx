@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, orderBy, getDocs } from 'firebase/firestore'
 import { Megaphone, Plus, Send, X } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -18,6 +18,7 @@ function timeAgo(ts: number): string {
 }
 
 export default function Announcements({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [announcements, setAnnouncements] = useState<(Announcement & { teacherName?: string; className?: string })[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -30,7 +31,7 @@ export default function Announcements({ user }: { user: AppUser }) {
   useEffect(() => {
     async function init() {
       if (user.role !== 'teacher') return
-      const snap = await getDocs(query(collection(db, 'classes'), where('teacherId', '==', user.id)))
+      const snap = await getDocs(query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)))
       const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
       const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
       const result = classData
@@ -47,7 +48,7 @@ export default function Announcements({ user }: { user: AppUser }) {
   useEffect(() => {
     if (user.role === 'teacher') {
       const unsub = onSnapshot(
-        query(collection(db, 'announcements'), where('teacherId', '==', user.id), orderBy('createdAt', 'desc')),
+        query(collection(db, 'announcements'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId), orderBy('createdAt', 'desc')),
         (snap) => {
           const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement))
           setAnnouncements(list)
@@ -57,7 +58,7 @@ export default function Announcements({ user }: { user: AppUser }) {
       return unsub
     } else {
       return onSnapshot(
-        query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+        query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
         (enrollSnap) => {
           const classIds = enrollSnap.docs.map(d => (d.data() as Enrollment).classId)
           setClassIdsSnapshot(classIds)
@@ -113,6 +114,7 @@ export default function Announcements({ user }: { user: AppUser }) {
         teacherId: user.id,
         title: sanitizeString(title, 200),
         content: sanitizeString(content, 5000),
+        schoolId,
         createdAt: Date.now(),
       } satisfies Omit<Announcement, 'id'>)
       setTitle('')
@@ -162,7 +164,7 @@ export default function Announcements({ user }: { user: AppUser }) {
             >
               <option value="">Select a class...</option>
               {teacherClasses.map(c => (
-                <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section} ({c.schedule})</option>
+                <option key={c.id} value={c.id}>{c.subject.code} — {c.section} ({c.schedule})</option>
               ))}
             </select>
           </div>

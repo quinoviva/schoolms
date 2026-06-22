@@ -1,11 +1,12 @@
 import { addDoc, collection } from 'firebase/firestore'
-import { db } from '@pbclc/shared'
+import { db } from '@academix/shared'
 
 export async function createNotification(
   userId: string,
   type: 'grade_released' | 'announcement' | 'assignment',
   message: string,
-  relatedId: string
+  relatedId: string,
+  schoolId?: string
 ) {
   await addDoc(collection(db, 'notifications'), {
     userId,
@@ -13,6 +14,7 @@ export async function createNotification(
     message,
     read: false,
     relatedId,
+    schoolId: schoolId || null,
     createdAt: Date.now(),
   })
 }

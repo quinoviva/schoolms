@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { School, Users, CheckCircle2, TrendingUp, Calendar } from 'lucide-react'
-import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
@@ -19,6 +19,7 @@ function StatCard({ icon: Icon, label, value }: { icon: any; label: string; valu
 }
 
 export default function TeacherDashboard({ user, onNav }: { user: AppUser; onNav?: (p: string) => void }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [totalStudents, setTotalStudents] = useState(0)
   const [todayClasses, setTodayClasses] = useState<(Class & { subject: Subject })[]>([])
@@ -27,7 +28,7 @@ export default function TeacherDashboard({ user, onNav }: { user: AppUser; onNav
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))

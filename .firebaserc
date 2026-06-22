@@ -10,8 +10,12 @@
         ],
         "admin": [
           "school-ms-admin"
+        ],
+        "super-admin": [
+          "academix-super-admin"
         ]
       }
     }
-  }
+  },
+  "etags": {}
 }

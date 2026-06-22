@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore'
 import { Plus, Link, ExternalLink, Trash2, FolderOpen } from 'lucide-react'
-import { db, fetchSubjectsByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 export default function LearningMaterials({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [materials, setMaterials] = useState<DriveLink[]>([])
@@ -22,7 +23,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -64,6 +65,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
         title: sanitizeString(title || driveUrl, 200),
         driveUrl: sanitizeString(driveUrl, 500),
         driveFileId: fileId,
+        schoolId,
         createdAt: Date.now(),
       } satisfies Omit<DriveLink, 'id'>)
       setTitle(''); setDriveUrl(''); setShowForm(false)

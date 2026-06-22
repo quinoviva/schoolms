@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer, FileText, CheckSquare, Table } from 'lucide-react'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, computeFinalGrade, transmute, getGradeDescriptor } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 type SheetTab = 'roster' | 'attendance' | 'grades'
 
 export default function ClassSheets({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [tab, setTab] = useState<SheetTab>('roster')
@@ -18,7 +19,7 @@ export default function ClassSheets({ user }: { user: AppUser }) {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))

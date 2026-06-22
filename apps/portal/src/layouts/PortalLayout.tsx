@@ -1,6 +1,6 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, onSnapshot, orderBy, limit, updateDoc, doc } from 'firebase/firestore'
-import { db, type Notification } from '@pbclc/shared'
+import { db, type Notification } from '@academix/shared'
 import { Bell, Menu, X, Megaphone, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import ThemeToggle from '../components/ui/ThemeToggle'
@@ -70,7 +70,7 @@ export default function PortalLayout({
               <Menu size={18} className="text-muted-foreground" />
             </button>
             <p className="text-xs text-muted-foreground hidden sm:block">
-              Owly School Management System
+              ACADEMIX
             </p>
           </div>
           <div className="flex items-center gap-3 ml-auto">

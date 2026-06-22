@@ -1,7 +1,7 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { School, AlertTriangle, Loader2, Mail } from 'lucide-react'
 import { sendPasswordResetEmail } from 'firebase/auth'
-import { auth } from '@pbclc/shared'
+import { auth } from '@academix/shared'
 import { showToast } from '../components/ui/toast'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -20,7 +20,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      await signIn(email.includes('@') ? email : email + '@x', password)
+      await signIn(email.includes('@') ? email : email + '@schoolms.edu', password)
     } catch (err: any) {
       setError(err.message || 'Invalid ID number or password.')
     } finally {
@@ -41,10 +41,10 @@ export default function LoginPage() {
             <School size={40} className="text-white" />
           </div>
           <h1 className="text-[2.2rem] font-bold text-white leading-tight mb-2">
-            Owly School
+            ACADEMIX
           </h1>
           <p className="text-[#c4a32a] text-lg mb-1">
-            Management System
+            School Management System
           </p>
           <div className="w-12 h-0.5 bg-[#8b6914] mx-auto my-6" />
           <p className="text-white/60 text-sm leading-relaxed italic">
@@ -61,7 +61,7 @@ export default function LoginPage() {
               <School size={26} className="text-white" />
             </div>
             <h1 className="text-xl font-bold text-[#1e3a5f]">
-              Owly School Management System
+              ACADEMIX
             </h1>
           </div>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError('') }}
-                placeholder="••••••••"
+                placeholder="��������"
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 focus:border-[#1e3a5f] transition-all text-sm"
               />
             </div>
@@ -130,7 +130,7 @@ export default function LoginPage() {
                 className="px-4 py-2 rounded-lg border border-border text-sm font-semibold text-foreground">Cancel</button>
               <button disabled={resetSending || !resetEmail} onClick={async () => {
                 setResetSending(true)
-                const fullEmail = resetEmail.includes('@') ? resetEmail : resetEmail + '@x'
+                const fullEmail = resetEmail.includes('@') ? resetEmail : resetEmail + '@schoolms.edu'
                 try {
                   await sendPasswordResetEmail(auth, fullEmail)
                   showToast('Reset link sent! Check your email.', 'success')

@@ -1,8 +1,8 @@
-﻿import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from '@pbclc/shared'
-import type { AppUser } from '@pbclc/shared'
+import { auth, db } from '@academix/shared'
+import type { AppUser } from '@academix/shared'
 
 interface AuthContextValue {
   firebaseUser: User | null

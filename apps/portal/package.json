@@ -1,5 +1,5 @@
 {
-  "name": "@pbclc/portal",
+  "name": "@academix/portal",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,7 +7,7 @@
     "build": "tsc -b && vite build"
   },
   "dependencies": {
-    "@pbclc/shared": "workspace:*",
+    "@academix/shared": "workspace:*",
     "@radix-ui/react-slot": "1.1.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

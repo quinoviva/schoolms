@@ -38,7 +38,7 @@ export default function AdminLayout({
         <aside className="w-56 bg-[#1e3a5f] flex flex-col h-full shrink-0">
           <div className="px-5 py-5 border-b border-white/10">
             <p className="text-white font-bold text-sm">
-              Owly Admin
+              ACADEMIX Admin
             </p>
             <p className="text-white/40 text-[0.65rem]">Management Console</p>
           </div>
@@ -84,7 +84,7 @@ export default function AdminLayout({
             <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
               <Menu size={18} className="text-muted-foreground" />
             </button>
-            <p className="text-xs text-muted-foreground">Owly School Management System â€” Admin</p>
+            <p className="text-xs text-muted-foreground">ACADEMIX â€” Admin</p>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />

@@ -1,11 +1,12 @@
-﻿import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc, setDoc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import { createNotification } from '../../utils/notifications'
 
 export default function GradeEntry({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [students, setStudents] = useState<{ id: string; name: string }[]>([])
@@ -22,7 +23,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -125,7 +126,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
             newSet.add(found.id)
           } else {
             const ref = doc(collection(db, 'grades'))
-            batch.set(ref, { studentId: student.id, classId: selectedClassId, componentId: comp.id, score: val, maxScore: 100 } satisfies Omit<GradeScore, 'id'>)
+            batch.set(ref, { studentId: student.id, classId: selectedClassId, componentId: comp.id, score: val, maxScore: 100, schoolId } satisfies Omit<GradeScore, 'id'>)
             newSet.add(ref.id)
           }
         }
@@ -135,7 +136,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
       await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(() => {})
       setDirty(false)
     } catch {} finally { setSaving(false) }
-  }, [selectedClassId, students, components, scores, dirty])
+  }, [selectedClassId, students, components, scores, dirty, schoolId])
 
   useEffect(() => {
     if (!dirty) return
@@ -189,6 +190,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
               componentId: comp.id,
               score: val,
               maxScore: 100,
+              schoolId,
             } satisfies Omit<GradeScore, 'id'>)
             newSet.add(ref.id)
           }
@@ -211,9 +213,10 @@ export default function GradeEntry({ user }: { user: AppUser }) {
           teacherId: user.id,
           releasedAt: Date.now(),
           isReleased: true,
+          schoolId,
         } satisfies Omit<GradeRelease, 'id'>)
         for (const student of students) {
-          await createNotification(student.id, 'grade_released', 'Your grades have been released.', selectedClassId)
+          await createNotification(student.id, 'grade_released', 'Your grades have been released.', selectedClassId, schoolId)
         }
       } else if (gradeReleaseDocId.current) {
         await setDoc(doc(db, 'gradeReleases', gradeReleaseDocId.current), {
@@ -221,6 +224,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
           teacherId: user.id,
           releasedAt: Date.now(),
           isReleased: false,
+          schoolId,
         } satisfies Omit<GradeRelease, 'id'>)
       }
 
@@ -245,7 +249,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
             Grade Entry
           </h1>
           {selectedClass && (
-            <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} Â· {selectedClass.section}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} · {selectedClass.section}</p>
           )}
         </div>
           <div className="flex items-center gap-4">
@@ -275,7 +279,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
           className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25"
         >
           {classes.map(c => (
-            <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section}</option>
+            <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>
           ))}
         </select>
       </div>
@@ -322,7 +326,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
                   ))}
                   <td className="px-3 py-3 text-center">
                     <span className={`font-bold px-2.5 py-0.5 rounded text-sm ${final >= 75 ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
-                      {final || 'â€”'}
+                      {final || '—'}
                     </span>
                   </td>
                 </tr>

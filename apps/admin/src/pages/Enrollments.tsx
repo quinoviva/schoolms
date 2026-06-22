@@ -1,12 +1,15 @@
-﻿import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc, writeBatch, orderBy, limit, startAfter } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type Class, type Subject, type AppUser } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type Class, type Subject, type AppUser } from '@academix/shared'
 import { Search, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Enrollments() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [students, setStudents] = useState<{ id: string; name: string; section: string }[]>([])
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [enrollments, setEnrollments] = useState<{ id?: string; studentId: string; classId: string }[]>([])
@@ -24,15 +27,17 @@ export default function Enrollments() {
   const [filteredStudents, setFilteredStudents] = useState<{ id: string; name: string; section: string }[]>([])
 
   useEffect(() => {
-    const unsubSubjects = onSnapshot(collection(db, 'subjects'), snap => {
+    if (!schoolId) return
+    const unsubSubjects = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)), snap => {
       setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)))
       setSubjectsLoaded(true)
     })
     return () => unsubSubjects()
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
-    const unsubClasses = onSnapshot(collection(db, 'classes'), snap => {
+    if (!schoolId) return
+    const unsubClasses = onSnapshot(query(collection(db, 'classes'), where('schoolId', '==', schoolId)), snap => {
       const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
       const clsData: (Class & { subject: Subject })[] = []
       classData.forEach(cls => {
@@ -42,18 +47,19 @@ export default function Enrollments() {
       setClasses(clsData)
     })
     return unsubClasses
-  }, [subjects])
+  }, [subjects, schoolId])
 
   useEffect(() => {
+    if (!schoolId) return
     async function loadStudents() {
-      const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student'), orderBy('name'), limit(500)))
+      const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student'), where('schoolId', '==', schoolId), orderBy('name'), limit(500)))
       setStudents(snap.docs.map(d => {
         const u = d.data() as AppUser
         return { id: d.id, name: u.name, section: u.section || '' }
       }))
     }
     loadStudents()
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
     if (!studentSearch) { setFilteredStudents(students); return }
@@ -62,11 +68,12 @@ export default function Enrollments() {
   }, [studentSearch, students])
 
   useEffect(() => {
+    if (!schoolId) return
     async function loadEnrollments() {
       setSubjectsLoaded(false)
       const cursor = pageCursors[page - 1] || null
-      let q = query(collection(db, 'enrollments'), orderBy('studentId'), limit(PAGE_SIZE))
-      if (cursor) q = query(collection(db, 'enrollments'), orderBy('studentId'), startAfter(cursor), limit(PAGE_SIZE))
+      let q = query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), orderBy('studentId'), limit(PAGE_SIZE))
+      if (cursor) q = query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), orderBy('studentId'), startAfter(cursor), limit(PAGE_SIZE))
       const snap = await getDocs(q)
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; studentId: string; classId: string }))
       setEnrollments(data)
@@ -78,7 +85,7 @@ export default function Enrollments() {
       setSubjectsLoaded(true)
     }
     loadEnrollments()
-  }, [page])
+  }, [page, schoolId])
 
   const loading = !subjectsLoaded
 
@@ -109,7 +116,7 @@ export default function Enrollments() {
     const exists = enrollments.some(e => e.studentId === selectedStudent && e.classId === selectedClass)
     if (exists) { showToast('Student already enrolled in this class.', 'error'); return }
     try {
-      await addDoc(collection(db, 'enrollments'), { studentId: selectedStudent, classId: selectedClass })
+      await addDoc(collection(db, 'enrollments'), { studentId: selectedStudent, classId: selectedClass, schoolId })
       showToast('Student enrolled successfully', 'success')
       setSelectedStudent('')
       setSelectedClass('')
@@ -126,14 +133,14 @@ export default function Enrollments() {
       if (found?.id) {
         await deleteDoc(doc(db, 'enrollments', found.id))
       } else {
-        const q = query(collection(db, 'enrollments'), where('studentId', '==', studentId), where('classId', '==', classId))
+        const q = query(collection(db, 'enrollments'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))
         const snap = await getDocs(q)
         snap.docs.forEach(d => deleteDoc(doc(db, 'enrollments', d.id)))
       }
 
       const [gradesSnap, attSnap] = await Promise.all([
-        getDocs(query(collection(db, 'grades'), where('studentId', '==', studentId), where('classId', '==', classId))),
-        getDocs(query(collection(db, 'attendance'), where('studentId', '==', studentId), where('classId', '==', classId))),
+        getDocs(query(collection(db, 'grades'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))),
+        getDocs(query(collection(db, 'attendance'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))),
       ])
       const batch = writeBatch(db)
       gradesSnap.docs.forEach(d => batch.delete(doc(db, 'grades', d.id)))

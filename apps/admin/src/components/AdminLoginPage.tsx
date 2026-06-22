@@ -1,7 +1,7 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { School, AlertTriangle, Loader2, Shield } from 'lucide-react'
 import { sendPasswordResetEmail } from 'firebase/auth'
-import { auth } from '@pbclc/shared'
+import { auth } from '@academix/shared'
 import { showToast } from '../components/ui/toast'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -15,12 +15,12 @@ export default function AdminLoginPage() {
   const [resetEmail, setResetEmail] = useState('')
   const [resetSending, setResetSending] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
+   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
     try {
-      await signIn(email, password)
+      await signIn(email.includes('@') ? email : email + '@schoolms.edu', password)
     } catch (err: any) {
       setError(err.message || 'Invalid credentials or access denied.')
     } finally {
@@ -38,17 +38,17 @@ export default function AdminLoginPage() {
           <h1 className="text-2xl font-bold text-[#1e3a5f]">
             Admin Portal
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">Owly School Management System</p>
+          <p className="text-muted-foreground text-sm mt-1">ACADEMIX</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-foreground mb-1.5">Admin Email</label>
+            <label className="block text-sm font-semibold text-foreground mb-1.5">Admin ID</label>
             <input
-              type="email"
+              type="text"
               value={email}
               onChange={e => { setEmail(e.target.value); setError('') }}
-              placeholder="admin@pbc.edu"
+              placeholder="dev-cyril"
               className="w-full px-4 py-2.5 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 focus:border-[#1e3a5f] transition-all text-sm"
             />
           </div>
@@ -58,7 +58,7 @@ export default function AdminLoginPage() {
               type="password"
               value={password}
               onChange={e => { setPassword(e.target.value); setError('') }}
-              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+              placeholder="••••••••"
               className="w-full px-4 py-2.5 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 focus:border-[#1e3a5f] transition-all text-sm"
             />
           </div>
@@ -92,8 +92,8 @@ export default function AdminLoginPage() {
           <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-lg text-foreground">Reset Password</h3>
             <p className="text-sm text-muted-foreground mt-1.5 mb-4">Enter your email to receive a password reset link.</p>
-            <input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
-              placeholder="admin@pbc.edu"
+            <input type="text" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+              placeholder="dev-cyril@schoolms.edu"
               className="w-full px-4 py-2.5 rounded-lg border border-border bg-[#f5f1eb] text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 mb-4" />
             <div className="flex justify-end gap-3">
               <button onClick={() => setResetOpen(false)}
@@ -101,7 +101,7 @@ export default function AdminLoginPage() {
               <button disabled={resetSending || !resetEmail} onClick={async () => {
                 setResetSending(true)
                 try {
-                  await sendPasswordResetEmail(auth, resetEmail)
+                  await sendPasswordResetEmail(auth, resetEmail.includes('@') ? resetEmail : resetEmail + '@schoolms.edu')
                   showToast('Reset link sent! Check your email.', 'success')
                   setResetOpen(false)
                 } catch { showToast('Failed to send reset email.', 'error') }

@@ -1,11 +1,12 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore'
 import { Edit2, Plus, BookOpen, Users, ChevronDown, ChevronRight } from 'lucide-react'
-import { db, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AcademicTerm } from '@pbclc/shared'
+import { db, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AcademicTerm } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 
 export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?: (p: string) => void }) {
+  const schoolId = user.schoolId || ''
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [classes, setClasses] = useState<Class[]>([])
   const [terms, setTerms] = useState<AcademicTerm[]>([])
@@ -25,32 +26,32 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
   const [expandedClass, setExpandedClass] = useState<string | null>(null)
 
   useEffect(() => {
-    getDocs(collection(db, 'terms')).then(termSnap => {
+    getDocs(query(collection(db, 'terms'), where('schoolId', '==', schoolId))).then(termSnap => {
       setTerms(termSnap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm)))
     })
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'subjects'), where('teacherId', '==', user.id)),
+      query(collection(db, 'subjects'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)))
       }
     )
     return unsub
-  }, [user])
+  }, [user, schoolId])
 
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
       }
     )
     return unsub
-  }, [user])
+  }, [user, schoolId])
 
   useEffect(() => {
     if (!classes.length) { setStudentsByClass({}); return }
@@ -84,7 +85,7 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
   }
 
   function getTermLabel(termId: string) {
-    return terms.find(t => t.id === termId)?.label || '—'
+    return terms.find(t => t.id === termId)?.label || '�'
   }
 
   async function handleCreateClass(e: React.FormEvent) {
@@ -99,6 +100,7 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
         schedule: sanitizeString(form.schedule, 100),
         room: sanitizeString(form.room, 50),
         termId: createTarget.termId,
+        schoolId,
         createdAt: Date.now(),
       } satisfies Omit<Class, 'id'>)
       setForm({ section: '', schedule: '', room: '' })
@@ -218,10 +220,10 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
                     <div className="pt-3 border-t border-border space-y-2">
                       <p className="text-sm text-[#8b6914] font-semibold">{cls.section}</p>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span>🕐</span> {cls.schedule}
+                        <span>??</span> {cls.schedule}
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>📍 {cls.room}</span>
+                        <span>?? {cls.room}</span>
                         <button
                           onClick={() => openEditClass(cls!)}
                           className="text-[#1e3a5f] hover:text-[#16304f] flex items-center gap-1 transition-colors"
@@ -288,7 +290,7 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
           <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-foreground text-lg mb-1">Create Class</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {createTarget.code} — {createTarget.title}
+              {createTarget.code} � {createTarget.title}
             </p>
             <form onSubmit={handleCreateClass} className="space-y-4">
               <div>

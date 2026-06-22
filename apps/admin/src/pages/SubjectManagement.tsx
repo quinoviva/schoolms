@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react'
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
-import { db, auth, sanitizeString, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@pbclc/shared'
+import { db, auth, sanitizeString, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@academix/shared'
 import { Plus, Pencil, Search, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
 import { createAuditLog } from '../utils/auditLog'
+import { useAuth } from '../contexts/AuthContext'
 
 const PAGE_SIZE = 20
 
 export default function SubjectManagement() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [subjects, setSubjects] = useState<(Subject & { id: string })[]>([])
   const [teachers, setTeachers] = useState<AppUser[]>([])
   const [terms, setTerms] = useState<AcademicTerm[]>([])
@@ -32,25 +35,28 @@ export default function SubjectManagement() {
   const [hasMore, setHasMore] = useState(true)
 
   useEffect(() => {
-    getDocs(query(collection(db, 'terms'), orderBy('label')))
+    if (!schoolId) return
+    getDocs(query(collection(db, 'terms'), where('schoolId', '==', schoolId), orderBy('label')))
       .then(snap => setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm & { id: string }))))
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('role', '==', 'teacher'), orderBy('name'))
+    if (!schoolId) return
+    const q = query(collection(db, 'users'), where('role', '==', 'teacher'), where('schoolId', '==', schoolId), orderBy('name'))
     getDocs(q).then(snap => {
       setTeachers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string })))
     })
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
+    if (!schoolId) return
     loadPage(0)
-  }, [])
+  }, [schoolId])
 
   function loadPage(idx: number) {
     setLoading(true)
     const cursor = cursors[idx]
-    let q = query(collection(db, 'subjects'), orderBy('code'), limit(PAGE_SIZE))
+    let q = query(collection(db, 'subjects'), where('schoolId', '==', schoolId), orderBy('code'), limit(PAGE_SIZE))
     if (cursor) q = query(q, startAfter(cursor))
     getDocs(q).then(snap => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject & { id: string }))
@@ -100,8 +106,8 @@ export default function SubjectManagement() {
       await addDoc(collection(db, 'subjects'), {
         code: sanitizeString(form.code, 20), title: sanitizeString(form.title, 100), teacherId: form.teacherId, termId: form.termId,
         gradeLevel: sanitizeString(form.gradeLevel, 10),
-        gradingComponents: components, createdAt: Date.now(),
-      } satisfies Omit<Subject, 'id'>)
+        gradingComponents: components, schoolId, createdAt: Date.now(),
+      })
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'subjects', '', 'Created subject: ' + form.code)
       resetForm(); setShowForm(false)
       loadPage(page)

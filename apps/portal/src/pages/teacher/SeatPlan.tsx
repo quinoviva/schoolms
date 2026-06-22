@@ -1,6 +1,6 @@
-﻿import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, setDoc, writeBatch, updateDoc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@academix/shared'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Smartphone, Plus, GripHorizontal, Monitor, Hash } from 'lucide-react'
@@ -23,6 +23,7 @@ function initials(name: string) {
 }
 
 export default function SeatPlanPage({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
   const [selectedClassId, setSelectedClassId] = useState('')
   const [seatPlan, setSeatPlan] = useState<SeatPlan | null>(null)
@@ -48,7 +49,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id)),
+      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
         const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
@@ -206,7 +207,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   async function handleSaveLayout() {
     setSaving(true)
     try {
-      const data = { classId: selectedClassId, canvasWidth: sanitizeNumber(CANVAS_W, 100, 5000), canvasHeight: sanitizeNumber(CANVAS_H, 100, 5000), elements, createdAt: seatPlan?.createdAt || Date.now(), updatedAt: Date.now() }
+      const data = { classId: selectedClassId, schoolId, canvasWidth: sanitizeNumber(CANVAS_W, 100, 5000), canvasHeight: sanitizeNumber(CANVAS_H, 100, 5000), elements, createdAt: seatPlan?.createdAt || Date.now(), updatedAt: Date.now() }
       if (seatPlan) { await setDoc(doc(db, 'seatPlans', seatPlan.id), data) }
       else { await addDoc(collection(db, 'seatPlans'), data) }
       showToast('Seat plan saved!', 'success')
@@ -235,7 +236,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
     const existingSnap = await getDocs(query(collection(db, 'attendance'), where('classId', '==', selectedClassId), where('date', '==', today), where('studentId', '==', studentId)))
     const batch = writeBatch(db)
     existingSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
-    batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks, recordedBy: user.id } satisfies Omit<AttendanceRecord, 'id'>)
+    batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks, recordedBy: user.id, schoolId } satisfies Omit<AttendanceRecord, 'id'>)
     await batch.commit()
   }
 
@@ -252,7 +253,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
       await updateDoc(doc(db, 'users', selectedStudentId), { nfcUid: normalized })
       await markAttendance(selectedStudentId, 'NFC scan')
       const name = getStudentName(selectedStudentId)
-      showToast(`NFC registered to ${name} — PRESENT`, 'success')
+      showToast(`NFC registered to ${name} � PRESENT`, 'success')
       return
     }
     showToast(`Unknown NFC chip. Select a student first, then tap again.`, 'info')
@@ -278,7 +279,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
     const existingSnap = await getDocs(query(collection(db, 'attendance'), where('classId', '==', selectedClassId), where('date', '==', today), where('studentId', '==', studentId)))
     const batch = writeBatch(db)
     existingSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
-    if (present) batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks: 'Manual', recordedBy: user.id } satisfies Omit<AttendanceRecord, 'id'>)
+    if (present) batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks: 'Manual', recordedBy: user.id, schoolId } satisfies Omit<AttendanceRecord, 'id'>)
     await batch.commit()
   }
 
@@ -304,7 +305,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-xs font-semibold tracking-widest uppercase">{el.label || 'Blackboard'}</span>
           {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">Ã—</button>}
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>}
         </div>
       )
     }
@@ -316,7 +317,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-[0.6rem] font-semibold">{el.label || "Teacher's Desk"}</span>
           {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">Ã—</button>}
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>}
         </div>
       )
     }
@@ -342,11 +343,11 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
             </span>
           ) : (
             <span className="text-[0.5rem] text-muted-foreground">
-              {selectedStudentId ? 'Assign â†’' : 'Empty'}
+              {selectedStudentId ? 'Assign →' : 'Empty'}
             </span>
           )}
           <button onMouseDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeElement(el.id) }}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.5rem] flex items-center justify-center hover:bg-red-600 shadow">Ã—</button>
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.5rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>
         </div>
       )
     }
@@ -383,12 +384,12 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           <h1 className="text-[1.65rem] font-bold text-[#1e3a5f] leading-tight">
             Interactive Seat Plan
           </h1>
-          {selectedClass && <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} Â· {selectedClass.section} Â· {selectedClass.room}</p>}
+          {selectedClass && <p className="text-sm text-muted-foreground mt-0.5">{selectedClass.subject.code} · {selectedClass.section} · {selectedClass.room}</p>}
         </div>
         <div className="flex items-center gap-3">
           <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)}
             className="px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
-            {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section}</option>)}
+            {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>)}
           </select>
           {seatPlan && (
             <button onClick={() => { setMode(mode === 'edit' ? 'view' : 'edit'); setSelectedStudentId(null) }}
@@ -427,7 +428,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                 <span className="text-xs text-muted-foreground ml-auto">{elements.filter(e => e.type === 'seat').length} seats</span>
               </div>
               <p className="text-[0.6rem] text-muted-foreground mb-2">
-                <strong>1.</strong> Click a student in the right panel â†’ <strong>2.</strong> Click an empty seat to assign.
+                <strong>1.</strong> Click a student in the right panel → <strong>2.</strong> Click an empty seat to assign.
                 Drag elements to reposition.
               </p>
               <div ref={canvasRef} className="relative border border-border rounded-lg bg-[#f8f5f0]/50"
@@ -472,7 +473,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                           {seatId ? `Seat ${seatIndex + 1}` : 'Unassigned'}
                         </p>
                       </div>
-                      {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">ðŸ“±</span>}
+                      {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">📱</span>}
                     </button>
                   )
                 })}
@@ -548,7 +549,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                 </div>
                 <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
                   <span>{students.length} enrolled</span>
-                  <span>{presentCount} present · {elements.filter(e => e.type === 'seat' && e.studentId).length - presentCount} absent · {elements.filter(e => e.type === 'seat' && !e.studentId).length} empty</span>
+                  <span>{presentCount} present � {elements.filter(e => e.type === 'seat' && e.studentId).length - presentCount} absent � {elements.filter(e => e.type === 'seat' && !e.studentId).length} empty</span>
                   <span>{today}</span>
                 </div>
               </div>
@@ -585,7 +586,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                             {seatId ? `Seat ${seatIndex + 1}` : 'No seat'}
                           </p>
                         </div>
-                        {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">📱</span>}
+                        {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">??</span>}
                       </button>
                     )
                   })}
@@ -595,7 +596,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                 </div>
                 <div className="px-4 py-3 border-t border-border text-[0.6rem] text-muted-foreground text-center">
                   {selectedStudentId
-                    ? `Selected: ${getStudentName(selectedStudentId)} — tap NFC to register`
+                    ? `Selected: ${getStudentName(selectedStudentId)} � tap NFC to register`
                     : 'Tap a student to select for NFC'}
                 </div>
               </div>

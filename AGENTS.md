@@ -1,8 +1,8 @@
-# AGENTS.md — Owly School Management System
+# AGENTS.md — ACADEMIX
 
 ## Stack
 
-pnpm workspace monorepo: `@pbclc/portal` (port 5173), `@pbclc/admin` (port 5174), `@pbclc/shared`. Vite 6 + React 18 + TypeScript per app. Firebase Auth + Firestore backend. Tailwind CSS v4 via `@tailwindcss/vite` — PostCSS intentionally empty, do not add plugins. Font: `'Google Sans', 'Inter', system-ui, sans-serif` via `@theme inline` CSS vars.
+pnpm workspace monorepo: `@academix/portal` (port 5173), `@academix/admin` (port 5174), `@academix/shared`. Vite 6 + React 18 + TypeScript per app. Firebase Auth + Firestore backend. Tailwind CSS v4 via `@tailwindcss/vite` — PostCSS intentionally empty, do not add plugins. Font: `'Google Sans', 'Inter', system-ui, sans-serif` via `@theme inline` CSS vars.
 
 ## Commands
 
@@ -18,10 +18,10 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 
 ## Architecture — don't guess these
 
-- **Two independent SPAs** sharing a Firebase project via `@pbclc/shared` (source-level dep, no build step). Each has its own `vite.config.ts`, `tsconfig.json`, `.env`.
+- **Two independent SPAs** sharing a Firebase project via `@academix/shared` (source-level dep, no build step). Each has its own `vite.config.ts`, `tsconfig.json`, `.env`.
 - **Manual `useState` page routing** — no `<Routes>` or React Router imports. Look for `const [page, setPage] = useState(...)` + `switch (page)`. Pages are function components keyed by string.
 - **Admin role guard** in `admin/src/contexts/AuthContext.tsx` — immediately signs out any user whose Firestore profile does not have `role === 'admin'`. Admin `signIn` also checks role before allowing login.
-- **Firebase email convention**: stored internally as `{id}@x`. LoginPage auto-appends `@x` if the input has no `@`. Password reset also auto-appends.
+- **Firebase email convention**: stored internally as `{id}@schoolms.edu`. LoginPage auto-appends `@schoolms.edu` if the input has no `@`. Password reset also auto-appends. `@x` is rejected by Firebase Auth — use `.edu` domains only.
 - **Admin creates subjects with grade levels and grading components**. Teachers cannot create subjects — they only create class instances (section + schedule + room) from admin-assigned subjects in `TeacherClasses.tsx`.
 - **Subjects have `gradeLevel`** (e.g. `G7`) — teacher classes view groups subjects by this field.
 - **Grading components** (`{ name, weight }[]`) are defined per-subject by admin, weights must sum to 100%. Scores stored per-component in `grades` collection; final grade computed client-side.
@@ -55,7 +55,7 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 
 ## Gotchas
 
-- Active Firebase project: `school-a1540` (API key `AIzaSyDhgy4dIduBgjLojuWW4eQzUw1jV38GZmU`). Admin account: `admin@pbc.edu` / `Admin123!`.
+- Active Firebase project: `school-a1540` (API key `AIzaSyDhgy4dIduBgjLojuWW4eQzUw1jV38GZmU`). Admin account: `dev-cyril@schoolms.edu` / `cyril2026` (login: `dev-cyril`, app auto-appends `@schoolms.edu`).
 - No emulators — connects directly to production.
 - When creating Firestore documents via code, spread `id` from the snapshot (`{ id: d.id, ...d.data() }`) — documents don't store their own id.
 - The `packages/shared/` entrypoint (`src/index.ts`) re-exports types + firebase config. It is a workspace dependency with `"main": "src/index.ts"` (no build output).

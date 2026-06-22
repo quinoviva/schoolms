@@ -1,1 +1,1 @@
-export { createAuditLog } from '@pbclc/shared'
+export { createAuditLog } from '@academix/shared'

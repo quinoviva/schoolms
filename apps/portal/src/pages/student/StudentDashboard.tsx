@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, doc, orderBy, limit, updateDoc } from 'firebase/firestore'
 import { BookOpen, Award, TrendingUp, CheckCircle2, Megaphone } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type GradeScore, type AttendanceRecord, type Subject, type Class, type Notification } from '@pbclc/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type GradeScore, type AttendanceRecord, type Subject, type Class, type Notification } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface SubjectGrade {
@@ -36,6 +36,7 @@ function formatTime(ts: number): string {
 }
 
 export default function StudentDashboard({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [enrolledCount, setEnrolledCount] = useState(0)
   const [classIds, setClassIds] = useState<string[]>([])
   const [allScores, setAllScores] = useState<GradeScore[]>([])
@@ -49,34 +50,34 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setEnrolledCount(snap.size)
         setClassIds(snap.docs.map(d => d.data().classId))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id)),
+      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'attendance'), where('studentId', '==', user.id)),
+      query(collection(db, 'attendance'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setAttendanceRecords(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord)))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -171,9 +172,9 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={BookOpen} label="Enrolled Subjects" value={enrolledCount} />
-        <StatCard icon={Award} label="Current Average" value={averageGrade !== null ? averageGrade : 'â€”'} />
+        <StatCard icon={Award} label="Current Average" value={averageGrade !== null ? averageGrade : '—'} />
         <StatCard icon={TrendingUp} label="Subjects with Grade" value={subjectGrades.length} />
-        <StatCard icon={CheckCircle2} label="Attendance Rate" value={attendanceRate !== null ? `${attendanceRate}%` : 'â€”'} />
+        <StatCard icon={CheckCircle2} label="Attendance Rate" value={attendanceRate !== null ? `${attendanceRate}%` : '—'} />
       </div>
 
       {subjectGrades.length > 0 && (

@@ -1,8 +1,9 @@
-﻿import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { collection, onSnapshot, getDocs, query, where, getCountFromServer, limit } from 'firebase/firestore'
-import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, type AcademicTerm } from '@pbclc/shared'
+import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, type AcademicTerm } from '@academix/shared'
 import { GraduationCap, Users, School, Award, Layers, BookOpenCheck, CalendarDays, Loader2, RefreshCw } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
+import { useAuth } from '../contexts/AuthContext'
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
   return (
@@ -70,6 +71,8 @@ interface SubjectAvg {
 }
 
 export default function AdminDashboard() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [students, setStudents] = useState<number | null>(null)
   const [teachers, setTeachers] = useState<number | null>(null)
   const [classes, setClasses] = useState<number | null>(null)
@@ -86,14 +89,15 @@ export default function AdminDashboard() {
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false)
 
   useEffect(() => {
+    if (!schoolId) return
     async function loadCounts() {
       const [stuCount, tchCount, clsCount, subjCount, sectCount, enrollCount] = await Promise.all([
-        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'student'))),
-        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'teacher'))),
-        getCountFromServer(collection(db, 'classes')),
-        getCountFromServer(collection(db, 'subjects')),
-        getCountFromServer(collection(db, 'sections')),
-        getCountFromServer(collection(db, 'enrollments')),
+        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'student'), where('schoolId', '==', schoolId))),
+        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'teacher'), where('schoolId', '==', schoolId))),
+        getCountFromServer(query(collection(db, 'classes'), where('schoolId', '==', schoolId))),
+        getCountFromServer(query(collection(db, 'subjects'), where('schoolId', '==', schoolId))),
+        getCountFromServer(query(collection(db, 'sections'), where('schoolId', '==', schoolId))),
+        getCountFromServer(query(collection(db, 'enrollments'), where('schoolId', '==', schoolId))),
       ])
       setStudents(stuCount.data().count)
       setTeachers(tchCount.data().count)
@@ -104,21 +108,26 @@ export default function AdminDashboard() {
     }
     loadCounts()
 
-    const unsubTerms = onSnapshot(collection(db, 'terms'), snap => {
+    const unsubTerms = onSnapshot(query(collection(db, 'terms'), where('schoolId', '==', schoolId)), snap => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
       setTermList(all)
       setTerms(all.length)
       setActiveTerms(all.filter(t => t.isActive).length)
     })
     return () => unsubTerms()
-  }, [])
+  }, [schoolId])
 
   const activeTermId = selectedTermId || termList.find(t => t.isActive)?.id || ''
 
   useEffect(() => {
+    if (!schoolId) return
     async function loadAnalytics() {
-      const classQuery = activeTermId ? query(collection(db, 'classes'), where('termId', '==', activeTermId)) : collection(db, 'classes')
-      const enrollQuery = activeTermId ? query(collection(db, 'enrollments'), where('termId', '==', activeTermId)) : collection(db, 'enrollments')
+      const classQuery = activeTermId
+        ? query(collection(db, 'classes'), where('schoolId', '==', schoolId), where('termId', '==', activeTermId))
+        : query(collection(db, 'classes'), where('schoolId', '==', schoolId))
+      const enrollQuery = activeTermId
+        ? query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), where('termId', '==', activeTermId))
+        : query(collection(db, 'enrollments'), where('schoolId', '==', schoolId))
 
       const classSnap = await getDocs(classQuery)
       const classList = classSnap.docs.map(d => ({ id: d.id, ...d.data() } as Class & { id: string }))
@@ -129,13 +138,12 @@ export default function AdminDashboard() {
       const uniqueStudentIds = [...new Set(enrollList.map(e => e.studentId))]
       const uniqueTeacherIds = [...new Set(classList.map(c => c.teacherId))]
 
-      // Teacher workload
       const loadMap: Record<string, number> = {}
       for (const c of classList) loadMap[c.teacherId] = (loadMap[c.teacherId] || 0) + 1
       const topTeachers = Object.entries(loadMap).sort((a, b) => b[1] - a[1]).slice(0, 20)
 
       const teacherNamePromises = topTeachers.map(async ([id, count]) => {
-        const snap = await getDocs(query(collection(db, 'users'), where('__name__', '==', id), limit(1)))
+        const snap = await getDocs(query(collection(db, 'users'), where('__name__', '==', id), where('schoolId', '==', schoolId), limit(1)))
         const name = snap.empty ? id.slice(0, 8) : snap.docs[0].data().name
         return { name, count }
       })
@@ -145,7 +153,7 @@ export default function AdminDashboard() {
       setAnalyticsLoaded(true)
     }
     loadAnalytics()
-  }, [activeTermId])
+  }, [activeTermId, schoolId])
 
   const loading = students === null || teachers === null || classes === null || subjects === null
 
@@ -158,14 +166,14 @@ export default function AdminDashboard() {
       <h1 className="text-[1.65rem] font-bold text-[#1e3a5f] leading-tight mb-1">
         Administrative Dashboard
       </h1>
-      <p className="text-sm text-muted-foreground mb-7">Owly School Management System</p>
+      <p className="text-sm text-muted-foreground mb-7">ACADEMIX</p>
 
       <div className="mb-6">
         <select value={selectedTermId} onChange={e => setSelectedTermId(e.target.value)}
           className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
           <option value="">All Terms</option>
           {termList.map(t => (
-            <option key={t.id} value={t.id}>{t.label} ({t.semester}){t.isActive ? ' • Active' : ''}</option>
+            <option key={t.id} value={t.id}>{t.label} ({t.semester}){t.isActive ? ' — Active' : ''}</option>
           ))}
         </select>
       </div>

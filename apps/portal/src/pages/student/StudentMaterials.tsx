@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { ExternalLink, FolderOpen, BookOpen } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type DriveLink, type Class, type Subject, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type DriveLink, type Class, type Subject, getDriveIcon, getDriveViewUrl } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface ClassWithSubject {
@@ -11,13 +11,14 @@ interface ClassWithSubject {
 }
 
 export default function StudentMaterials({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classList, setClassList] = useState<ClassWithSubject[]>([])
   const [materials, setMaterials] = useState<Record<string, DriveLink[]>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       async (snap) => {
         const classIds = snap.docs.map(d => d.data().classId)
         const classesMap = await fetchDocsByIds<Class>('classes', classIds)

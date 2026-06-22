@@ -1,12 +1,15 @@
-﻿import { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, sanitizeString, type Section } from '@pbclc/shared'
+import { useEffect, useState } from 'react'
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore'
+import { db, sanitizeString, type Section } from '@academix/shared'
 import { Search, Plus, Pencil } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function SectionManagement() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [sections, setSections] = useState<Section[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -20,12 +23,13 @@ export default function SectionManagement() {
   const [editSaving, setEditSaving] = useState(false)
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'sections'), snap => {
+    if (!schoolId) return
+    const unsub = onSnapshot(query(collection(db, 'sections'), where('schoolId', '==', schoolId)), snap => {
       setSections(snap.docs.map(d => ({ id: d.id, ...d.data() } as Section)))
       setLoading(false)
     })
     return unsub
-  }, [])
+  }, [schoolId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -34,7 +38,8 @@ export default function SectionManagement() {
       await addDoc(collection(db, 'sections'), {
         name: sanitizeString(form.name, 50),
         gradeLevel: sanitizeString(form.gradeLevel, 10),
-      } satisfies Omit<Section, 'id'>)
+        schoolId,
+      })
       setForm({ name: '', gradeLevel: '' })
       setShowForm(false)
       showToast('Section created successfully', 'success')
@@ -133,7 +138,7 @@ export default function SectionManagement() {
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-secondary/20">
           <Search size={14} className="text-muted-foreground shrink-0" />
-          <input type="text" placeholder="Search by name or grade levelâ€¦" value={search}
+          <input type="text" placeholder="Search by name or grade level..." value={search}
             onChange={e => setSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
         </div>

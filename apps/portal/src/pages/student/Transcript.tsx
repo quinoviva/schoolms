@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser, type GradeRelease } from '@pbclc/shared'
+import { db, type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser, type GradeRelease } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface TermRecord {
@@ -11,6 +11,7 @@ interface TermRecord {
 }
 
 export default function Transcript({ user }: { user: AppUser }) {
+  const schoolId = user.schoolId || ''
   const [classIds, setClassIds] = useState<string[]>([])
   const [allScores, setAllScores] = useState<GradeScore[]>([])
   const [releasedSet, setReleasedSet] = useState<Set<string>>(new Set())
@@ -19,23 +20,23 @@ export default function Transcript({ user }: { user: AppUser }) {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
+      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setClassIds(snap.docs.map(d => d.data().classId))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id)),
+      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
       (snap) => {
         setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
       }
     )
     return unsub
-  }, [user.id])
+  }, [user.id, schoolId])
 
   useEffect(() => {
     if (!classIds.length) { setReleasedSet(new Set()); return }
@@ -61,7 +62,7 @@ export default function Transcript({ user }: { user: AppUser }) {
         return
       }
 
-      const termsSnap = await getDocs(collection(db, 'terms'))
+      const termsSnap = await getDocs(query(collection(db, 'terms'), where('schoolId', '==', schoolId)))
       const terms = termsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
 
       const batchSize = 10
@@ -144,7 +145,7 @@ export default function Transcript({ user }: { user: AppUser }) {
       </div>
 
       <div id="transcript-content">
-        <p className="text-sm text-muted-foreground mb-6">{user.name} Â· {user.id}</p>
+        <p className="text-sm text-muted-foreground mb-6">{user.name} · {user.id}</p>
 
         <div className="bg-[#1e3a5f] rounded-xl p-6 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
@@ -162,7 +163,7 @@ export default function Transcript({ user }: { user: AppUser }) {
               <div className="px-5 py-4 bg-secondary/40 flex items-center justify-between border-b border-border">
                 <div>
                   <p className="font-bold text-foreground text-sm">
-                    {rec.term.label} â€” {rec.term.semester}
+                    {rec.term.label} — {rec.term.semester}
                   </p>
                 </div>
                 <div className="text-right">

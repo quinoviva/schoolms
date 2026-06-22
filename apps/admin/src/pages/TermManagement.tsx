@@ -1,12 +1,15 @@
-﻿import { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, sanitizeString, type AcademicTerm } from '@pbclc/shared'
+import { useEffect, useState } from 'react'
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore'
+import { db, sanitizeString, type AcademicTerm } from '@academix/shared'
 import { Plus, AlertTriangle, Archive, Eye, EyeOff } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function TermManagement() {
+  const { appUser } = useAuth()
+  const schoolId = appUser?.schoolId || ''
   const [terms, setTerms] = useState<AcademicTerm[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -17,12 +20,13 @@ export default function TermManagement() {
   const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'terms'), snap => {
+    if (!schoolId) return
+    const unsub = onSnapshot(query(collection(db, 'terms'), where('schoolId', '==', schoolId)), snap => {
       setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm)))
       setLoading(false)
     })
     return unsub
-  }, [])
+  }, [schoolId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -34,8 +38,9 @@ export default function TermManagement() {
         label: sanitizeString(form.label, 100),
         semester: sanitizeString(form.semester, 50),
         isActive: !activeExists,
+        schoolId,
         createdAt: Date.now(),
-      } satisfies Omit<AcademicTerm, 'id'>)
+      })
 
       setForm({ label: '', semester: '' })
       setShowForm(false)
@@ -111,7 +116,7 @@ export default function TermManagement() {
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">School Year</label>
               <input required value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
-                placeholder="e.g., S.Y. 2024â€“2025"
+                placeholder="e.g., S.Y. 2024-2025"
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
             </div>
             <div>
