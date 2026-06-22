@@ -25,11 +25,16 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isClassTeacher(classId) {
+      return isAuthenticated()
+        && get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
+    }
+
     // Users collection
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAdmin();
-      allow update: if isAdmin() || isOwner(userId);
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
       allow delete: if isAdmin();
     }
 
@@ -56,21 +61,19 @@ service cloud.firestore {
     // Enrollments collection
     match /enrollments/{enrollmentId} {
       allow read: if isAuthenticated();
-      allow create: if isAdmin();
-      allow delete: if isAdmin();
-      allow update: if isAdmin();
+      allow write: if isAdmin();
     }
 
     // Grades collection
     match /grades/{gradeId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && isClassTeacher(resource.data.classId));
     }
 
     // Attendance collection
     match /attendance/{attendanceId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && isClassTeacher(resource.data.classId));
     }
 
     // Sections collection
@@ -82,25 +85,27 @@ service cloud.firestore {
     // Materials collection
     match /materials/{materialId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && resource.data.teacherId == request.auth.uid);
     }
 
     // Announcements collection
     match /announcements/{announcementId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && request.resource.data.teacherId == request.auth.uid);
     }
 
     // Assignments collection
     match /assignments/{assignmentId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && isClassTeacher(resource.data.classId));
     }
 
     // Submissions collection
     match /submissions/{submissionId} {
       allow read: if isAuthenticated();
-      allow write: if isStudent() || isTeacher() || isAdmin();
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isTeacher() || isAdmin() || (isStudent() && resource.data.studentId == request.auth.uid && resource.data.score == null);
+      allow delete: if isAdmin();
     }
 
     // Notifications collection
@@ -112,19 +117,21 @@ service cloud.firestore {
     // GradeReleases collection
     match /gradeReleases/{releaseId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && isClassTeacher(resource.data.classId));
     }
 
     // SeatPlans collection
     match /seatPlans/{seatPlanId} {
       allow read: if isAuthenticated();
-      allow write: if isTeacher() || isAdmin();
+      allow write: if isAdmin() || (isTeacher() && isClassTeacher(resource.data.classId));
     }
 
     // AuditLogs collection
     match /auditLogs/{logId} {
       allow read: if isAdmin();
-      allow write: if isAuthenticated();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+      allow update: if false;
     }
   }
 }

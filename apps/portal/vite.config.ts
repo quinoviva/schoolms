@@ -9,4 +9,18 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  build: {
+    sourcemap: false,
+    cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('firebase')) return 'firebase'
+          if (id.includes('node_modules/react-dom')) return 'react-dom'
+          if (id.includes('node_modules/react')) return 'react'
+          if (id.includes('node_modules/lucide-react')) return 'icons'
+        },
+      },
+    },
+  },
 })
