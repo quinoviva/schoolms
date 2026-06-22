@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { School, Users, CheckCircle2, TrendingUp, Calendar } from 'lucide-react'
-import { db, type AppUser, type Class, type Subject } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
@@ -29,18 +29,22 @@ export default function TeacherDashboard({ user, onNav }: { user: AppUser; onNav
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
-        const result: (Class & { subject: Subject })[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDocs(query(collection(db, 'subjects'), where('__name__', '==', cls.subjectId)))
-          if (!subjSnap.empty) {
-            result.push({ ...cls, subject: { id: subjSnap.docs[0].id, ...subjSnap.docs[0].data() } as Subject })
-          }
-        }
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+        const result = classData
+          .map(cls => {
+            const subject = subjectMap.get(cls.subjectId)
+            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+          })
+          .filter(Boolean) as (Class & { subject: Subject })[]
         setClasses(result)
 
-        const enrollSnaps = await Promise.all(result.map(c => getDocs(query(collection(db, 'enrollments'), where('classId', '==', c.id)))))
-        const studentCount = [...new Set(enrollSnaps.flatMap(e => e.docs.map(d => d.data().studentId)))].length
+        const classIds = result.map(c => c.id)
+        let studentCount = 0
+        if (classIds.length) {
+          const enrollSnaps = await Promise.all(classIds.map(cid => getDocs(query(collection(db, 'enrollments'), where('classId', '==', cid)))))
+          studentCount = [...new Set(enrollSnaps.flatMap(e => e.docs.map(d => d.data().studentId)))].length
+        }
         setTotalStudents(studentCount)
 
         const today = new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface StudentInfo {
@@ -29,15 +29,14 @@ export default function ReportCards({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
-        const result: (Class & { subject: Subject })[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDocs(query(collection(db, 'subjects'), where('__name__', '==', cls.subjectId)))
-          if (!subjSnap.empty) {
-            const subject = { id: subjSnap.docs[0].id, ...subjSnap.docs[0].data() } as Subject
-            result.push({ ...cls, subject })
-          }
-        }
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+        const result = classData
+          .map(cls => {
+            const subject = subjectMap.get(cls.subjectId)
+            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+          })
+          .filter(Boolean) as (Class & { subject: Subject })[]
         setClasses(result)
         if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
         setLoading(false)
@@ -54,14 +53,13 @@ export default function ReportCards({ user }: { user: AppUser }) {
     async function load() {
       const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)))
       const studentIds = enrollSnap.docs.map(d => d.data().studentId)
-      const studentList: StudentInfo[] = []
-      for (const sid of studentIds) {
-        const userSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', sid)))
-        if (!userSnap.empty) {
-          const data = userSnap.docs[0].data()
-          studentList.push({ id: sid, name: data.name, section: data.section || cls!.section })
-        }
-      }
+      const userMap = await fetchUsersByIds(studentIds)
+      const studentList: StudentInfo[] = studentIds
+        .map(id => {
+          const user = userMap.get(id)
+          return user ? { id, name: user.name, section: user.section || cls!.section } : null
+        })
+        .filter(Boolean) as StudentInfo[]
 
       const gradesSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
       const allScores = gradesSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))

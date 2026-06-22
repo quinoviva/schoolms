@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore'
 import { Plus, Link, ExternalLink, Trash2, FolderOpen } from 'lucide-react'
-import { db, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
@@ -24,14 +24,14 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
-        const result: (Class & { subject: Subject })[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDocs(query(collection(db, 'subjects'), where('__name__', '==', cls.subjectId)))
-          if (!subjSnap.empty) {
-            result.push({ ...cls, subject: { id: subjSnap.docs[0].id, ...subjSnap.docs[0].data() } as Subject })
-          }
-        }
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+        const result = classData
+          .map(cls => {
+            const subject = subjectMap.get(cls.subjectId)
+            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+          })
+          .filter(Boolean) as (Class & { subject: Subject })[]
         setClasses(result)
         if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
         setLoading(false)

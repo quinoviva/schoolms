@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore'
 import { Edit2, Plus, BookOpen, Users, ChevronDown, ChevronRight } from 'lucide-react'
-import { db, type AppUser, type Class, type Subject, type AcademicTerm } from '@pbclc/shared'
+import { db, fetchUsersByIds, type AppUser, type Class, type Subject, type AcademicTerm } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 
@@ -61,11 +61,13 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
         async (snap) => {
           const studentIds = snap.docs.map(d => d.data().studentId)
           if (!studentIds.length) { setStudentsByClass(prev => ({ ...prev, [classId]: [] })); return }
-          const result: { id: string; name: string }[] = []
-          for (const sid of studentIds) {
-            const userSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', sid)))
-            if (!userSnap.empty) result.push({ id: sid, name: userSnap.docs[0].data().name })
-          }
+          const userMap = await fetchUsersByIds(studentIds)
+          const result = studentIds
+            .map(id => {
+              const user = userMap.get(id)
+              return user ? { id, name: user.name } : null
+            })
+            .filter(Boolean) as { id: string; name: string }[]
           setStudentsByClass(prev => ({ ...prev, [classId]: result }))
         }
       )

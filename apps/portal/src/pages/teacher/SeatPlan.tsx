@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, setDoc, writeBatch, updateDoc } from 'firebase/firestore'
-import { db, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Smartphone, Plus, GripHorizontal, Monitor, Hash } from 'lucide-react'
@@ -50,14 +50,14 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
-        const result: (Class & { subject: Subject })[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDocs(query(collection(db, 'subjects'), where('__name__', '==', cls.subjectId)))
-          if (!subjSnap.empty) {
-            result.push({ ...cls, subject: { id: subjSnap.docs[0].id, ...subjSnap.docs[0].data() } as Subject })
-          }
-        }
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+        const result = classData
+          .map(cls => {
+            const subject = subjectMap.get(cls.subjectId)
+            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+          })
+          .filter(Boolean) as (Class & { subject: Subject })[]
         setClasses(result)
         if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
       }
@@ -86,14 +86,13 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
     async function loadStudents() {
       const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)))
       const ids = enrollSnap.docs.map(d => d.data().studentId)
-      const list: { id: string; name: string; nfcUid?: string }[] = []
-      for (const sid of ids) {
-        const usr = await getDocs(query(collection(db, 'users'), where('__name__', '==', sid)))
-        if (!usr.empty) {
-          const data = usr.docs[0].data()
-          list.push({ id: sid, name: data.name, nfcUid: data.nfcUid })
-        }
-      }
+      const userMap = await fetchUsersByIds(ids)
+      const list = ids
+        .map(id => {
+          const user = userMap.get(id)
+          return user ? { id, name: user.name, nfcUid: user.nfcUid } : null
+        })
+        .filter(Boolean) as { id: string; name: string; nfcUid?: string }[]
       setStudents(list)
     }
     loadStudents()
