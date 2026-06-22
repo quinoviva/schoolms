@@ -1,1 +1,0 @@
-import{x as s,h as d,a as n}from"./firebase-ugBb0OtA.js";async function l(a,o,t,c,e,i){await s(d(n,"auditLogs"),{userId:a,userEmail:o||"",action:t,collection:c,documentId:e||"",details:i,timestamp:Date.now()})}export{l as c};
