@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, orderBy, getDocs } from 'firebase/firestore'
 import { Megaphone, Plus, Send, X } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -111,8 +111,8 @@ export default function Announcements({ user }: { user: AppUser }) {
       await addDoc(collection(db, 'announcements'), {
         classId,
         teacherId: user.id,
-        title: title.trim(),
-        content: content.trim(),
+        title: sanitizeString(title, 200),
+        content: sanitizeString(content, 5000),
         createdAt: Date.now(),
       } satisfies Omit<Announcement, 'id'>)
       setTitle('')
@@ -120,6 +120,7 @@ export default function Announcements({ user }: { user: AppUser }) {
       setClassId('')
       setShowForm(false)
       showToast('Announcement posted!', 'success')
+      await createAuditLog(user.id, user.email, 'create', 'announcements', classId, `Posted announcement: ${sanitizeString(title, 100)}`)
     } catch {
       showToast('Failed to post announcement.', 'error')
     } finally {

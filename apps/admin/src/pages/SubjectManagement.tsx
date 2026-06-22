@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
-import { db, auth, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@pbclc/shared'
+import { db, auth, sanitizeString, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@pbclc/shared'
 import { Plus, Pencil, Search, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -98,8 +98,8 @@ export default function SubjectManagement() {
     setSaving(true); setError('')
     try {
       await addDoc(collection(db, 'subjects'), {
-        code: form.code, title: form.title, teacherId: form.teacherId, termId: form.termId,
-        gradeLevel: form.gradeLevel,
+        code: sanitizeString(form.code, 20), title: sanitizeString(form.title, 100), teacherId: form.teacherId, termId: form.termId,
+        gradeLevel: sanitizeString(form.gradeLevel, 10),
         gradingComponents: components, createdAt: Date.now(),
       } satisfies Omit<Subject, 'id'>)
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'subjects', '', 'Created subject: ' + form.code)
@@ -123,8 +123,8 @@ export default function SubjectManagement() {
     setEditSaving(true)
     try {
       await updateDoc(doc(db, 'subjects', editTarget.id), {
-        code: editForm.code, title: editForm.title, teacherId: editForm.teacherId, termId: editForm.termId,
-        gradeLevel: editForm.gradeLevel,
+        code: sanitizeString(editForm.code, 20), title: sanitizeString(editForm.title, 100), teacherId: editForm.teacherId, termId: editForm.termId,
+        gradeLevel: sanitizeString(editForm.gradeLevel, 10),
         gradingComponents: editComponents,
       })
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'update', 'subjects', editTarget.id, 'Updated subject: ' + editForm.code)

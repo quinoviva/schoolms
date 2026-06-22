@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore'
 import { Edit2, Plus, BookOpen, Users, ChevronDown, ChevronRight } from 'lucide-react'
-import { db, fetchUsersByIds, type AppUser, type Class, type Subject, type AcademicTerm } from '@pbclc/shared'
+import { db, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AcademicTerm } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 
@@ -94,16 +94,17 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
     try {
       await addDoc(collection(db, 'classes'), {
         subjectId: createTarget.id,
-        section: form.section,
+        section: sanitizeString(form.section, 50),
         teacherId: user.id,
-        schedule: form.schedule,
-        room: form.room,
+        schedule: sanitizeString(form.schedule, 100),
+        room: sanitizeString(form.room, 50),
         termId: createTarget.termId,
         createdAt: Date.now(),
       } satisfies Omit<Class, 'id'>)
       setForm({ section: '', schedule: '', room: '' })
       setCreateTarget(null)
       showToast('Class created!', 'success')
+      await createAuditLog(user.id, user.email, 'create', 'classes', createTarget.id, `Created class for ${sanitizeString(form.section, 50)}`)
     } catch (err) {
       console.error(err)
       showToast('Failed to create class.', 'error')
@@ -122,10 +123,11 @@ export default function TeacherClasses({ user, onNav }: { user: AppUser; onNav?:
     if (!editClass) return
     try {
       await updateDoc(doc(db, 'classes', editClass.id), {
-        schedule: editSchedule,
-        room: editRoom,
+        schedule: sanitizeString(editSchedule, 100),
+        room: sanitizeString(editRoom, 50),
       } satisfies Partial<Class>)
       showToast('Class updated!', 'success')
+      await createAuditLog(user.id, user.email, 'update', 'classes', editClass.id, 'Updated class schedule/room')
       setEditClass(null)
     } catch (err) {
       console.error(err)

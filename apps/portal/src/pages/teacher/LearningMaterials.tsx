@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore'
 import { Plus, Link, ExternalLink, Trash2, FolderOpen } from 'lucide-react'
-import { db, fetchSubjectsByIds, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
@@ -61,13 +61,14 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
       await addDoc(collection(db, 'materials'), {
         classId: selectedClassId,
         teacherId: user.id,
-        title: title || driveUrl,
-        driveUrl,
+        title: sanitizeString(title || driveUrl, 200),
+        driveUrl: sanitizeString(driveUrl, 500),
         driveFileId: fileId,
         createdAt: Date.now(),
       } satisfies Omit<DriveLink, 'id'>)
       setTitle(''); setDriveUrl(''); setShowForm(false)
       showToast('Material added!', 'success')
+      await createAuditLog(user.id, user.email, 'create', 'materials', selectedClassId, `Added material: ${sanitizeString(title || driveUrl, 100)}`)
     } catch (err) {
       console.error(err)
       showToast('Failed to add material.', 'error')
@@ -80,6 +81,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
     if (!deleteTarget) return
     try {
       await deleteDoc(doc(db, 'materials', deleteTarget.id))
+      await createAuditLog(user.id, user.email, 'delete', 'materials', deleteTarget.id, `Removed material: ${sanitizeString(deleteTarget.title, 100)}`)
       showToast('Material removed.', 'success')
     } catch { showToast('Failed to delete.', 'error') }
     setDeleteTarget(null)

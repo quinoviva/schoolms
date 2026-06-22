@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react'
 import { doc, updateDoc } from 'firebase/firestore'
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, getAuth } from 'firebase/auth'
-import { db, type AppUser } from '@pbclc/shared'
+import { db, sanitizeString, type AppUser } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 import { useAuth } from '../contexts/AuthContext'
@@ -21,8 +21,8 @@ export default function Profile({ user }: { user: AppUser }) {
     if (!name.trim()) { showToast('Name is required.', 'error'); return }
     setSaving(true)
     try {
-      const updateData: Record<string, string> = { name: name.trim() }
-      if (user.role === 'student') updateData.section = section.trim()
+      const updateData: Record<string, string> = { name: sanitizeString(name, 100) }
+      if (user.role === 'student') updateData.section = sanitizeString(section, 50)
       await updateDoc(doc(db, 'users', user.id), updateData)
       await refreshUser()
       showToast('Profile updated!', 'success')

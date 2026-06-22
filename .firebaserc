@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "default": "school-a1540"
+  },
+  "targets": {
+    "school-a1540": {
+      "hosting": {
+        "portal": [
+          "school-a1540"
+        ],
+        "admin": [
+          "school-a1540-admin"
+        ]
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, setDoc, writeBatch, updateDoc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@pbclc/shared'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Smartphone, Plus, GripHorizontal, Monitor, Hash } from 'lucide-react'
@@ -206,10 +206,11 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   async function handleSaveLayout() {
     setSaving(true)
     try {
-      const data = { classId: selectedClassId, canvasWidth: CANVAS_W, canvasHeight: CANVAS_H, elements, createdAt: seatPlan?.createdAt || Date.now(), updatedAt: Date.now() }
+      const data = { classId: selectedClassId, canvasWidth: sanitizeNumber(CANVAS_W, 100, 5000), canvasHeight: sanitizeNumber(CANVAS_H, 100, 5000), elements, createdAt: seatPlan?.createdAt || Date.now(), updatedAt: Date.now() }
       if (seatPlan) { await setDoc(doc(db, 'seatPlans', seatPlan.id), data) }
       else { await addDoc(collection(db, 'seatPlans'), data) }
       showToast('Seat plan saved!', 'success')
+      await createAuditLog(user.id, user.email, 'update', 'seatPlans', seatPlan?.id || '', `Saved seat plan layout for class ${selectedClassId}`)
       setMode('view')
     } catch { showToast('Failed to save seat plan.', 'error') }
     finally { setSaving(false) }
@@ -239,7 +240,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   }
 
   async function processNfcUid(uid: string) {
-    const normalized = uid.trim().toUpperCase()
+    const normalized = sanitizeString(uid, 50).trim().toUpperCase()
     setScannedUid(normalized)
     const student = students.find(s => s.nfcUid?.toUpperCase() === normalized)
     if (student) {

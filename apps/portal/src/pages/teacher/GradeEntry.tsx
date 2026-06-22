@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useRef, useCallback } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc, setDoc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import { createNotification } from '../../utils/notifications'
@@ -114,7 +114,8 @@ export default function GradeEntry({ user }: { user: AppUser }) {
 
       for (const student of students) {
         for (const comp of components) {
-          const val = parseFloat(scores[student.id]?.[comp.id] || '0')
+          const raw = parseFloat(scores[student.id]?.[comp.id] || '0')
+          const val = sanitizeNumber(raw, 0, 100)
           if (isNaN(val) || val < 0) continue
           const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
           if (found) {
@@ -131,6 +132,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
       }
       existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => batch.delete(doc(db, 'grades', eg.id)))
       await batch.commit()
+      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(() => {})
       setDirty(false)
     } catch {} finally { setSaving(false) }
   }, [selectedClassId, students, components, scores, dirty])
@@ -170,7 +172,8 @@ export default function GradeEntry({ user }: { user: AppUser }) {
 
       for (const student of students) {
         for (const comp of components) {
-          const val = parseFloat(scores[student.id]?.[comp.id] || '0')
+          const raw = parseFloat(scores[student.id]?.[comp.id] || '0')
+          const val = sanitizeNumber(raw, 0, 100)
           if (isNaN(val) || val < 0) continue
           const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
           if (found) {
@@ -197,6 +200,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
       })
 
       await batch.commit()
+      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, `Saved grades for ${students.length} students`)
 
       if (isReleased) {
         const ref = gradeReleaseDocId.current

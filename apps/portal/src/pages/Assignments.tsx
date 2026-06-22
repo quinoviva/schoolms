@@ -2,7 +2,7 @@
 import { collection, query, where, onSnapshot, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { BookOpen, CheckCircle2, Clock, FileText, Upload, Download, Paperclip } from 'lucide-react'
-import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -91,10 +91,10 @@ export default function Assignments({ user }: { user: AppUser }) {
       await addDoc(collection(db, 'assignments'), {
         classId: selectedClassId,
         teacherId: user.id,
-        title: title.trim(),
-        description: description.trim(),
+        title: sanitizeString(title, 200),
+        description: sanitizeString(description, 5000),
         dueDate,
-        maxScore: Number(maxScore),
+        maxScore: sanitizeNumber(maxScore, 1, 1000),
         createdAt: Date.now(),
       } satisfies Omit<Assignment, 'id'>)
       setTitle('')
@@ -103,6 +103,7 @@ export default function Assignments({ user }: { user: AppUser }) {
       setMaxScore('')
       setShowForm(false)
       showToast('Assignment created!', 'success')
+      await createAuditLog(user.id, user.email, 'create', 'assignments', selectedClassId, `Created assignment: ${sanitizeString(title, 100)}`)
     } catch {
       showToast('Failed to create assignment.', 'error')
     } finally {
@@ -125,8 +126,8 @@ export default function Assignments({ user }: { user: AppUser }) {
       await addDoc(collection(db, 'submissions'), {
         assignmentId,
         studentId: user.id,
-        fileUrl,
-        fileName,
+        fileUrl: sanitizeString(fileUrl, 500),
+        fileName: sanitizeString(fileName, 200),
         score: null,
         submittedAt: Date.now(),
         gradedAt: null,
@@ -142,8 +143,9 @@ export default function Assignments({ user }: { user: AppUser }) {
 
   async function handleGradeSubmission(submissionId: string, score: number) {
     try {
-      await updateDoc(doc(db, 'submissions', submissionId), { score, gradedAt: Date.now() })
+      await updateDoc(doc(db, 'submissions', submissionId), { score: sanitizeNumber(score, 0, 1000), gradedAt: Date.now() })
       showToast('Submission graded!', 'success')
+      await createAuditLog(user.id, user.email, 'grade', 'submissions', submissionId, `Graded submission with score ${sanitizeNumber(score, 0, 1000)}`)
     } catch {
       showToast('Failed to grade submission.', 'error')
     }

@@ -1,0 +1,1 @@
+function e(n,t=200){return typeof n!="string"?"":n.slice(0,t).trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,"")}function s(n,t=-1/0,r=1/0){const i=typeof n=="number"?n:Number(n);return isNaN(i)?0:Math.min(Math.max(i,t),r)}export{s as a,e as s};

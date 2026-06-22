@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useRef } from 'react'
 import { collection, query, where, onSnapshot, getDocs, writeBatch, doc } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchUsersByIds, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@pbclc/shared'
 import { CheckCircle2 } from 'lucide-react'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
@@ -101,14 +101,15 @@ export default function Attendance({ user }: { user: AppUser }) {
 
       const updated = new Set<string>()
       for (const [studentId, status] of Object.entries(attendance)) {
+        const sanitizedStatus = sanitizeString(status, 10) as AttendanceStatus
         const existingId = existingMap[studentId]
         if (existingId) {
-          batch.update(doc(db, 'attendance', existingId), { status, recordedBy: user.id })
+          batch.update(doc(db, 'attendance', existingId), { status: sanitizedStatus, recordedBy: user.id })
           updated.add(existingId)
         } else {
           const ref = doc(collection(db, 'attendance'))
           batch.set(ref, {
-            studentId, classId: selectedClassId, date, status,
+            studentId, classId: selectedClassId, date, status: sanitizedStatus,
             remarks: '', recordedBy: user.id,
           } satisfies Omit<AttendanceRecord, 'id'>)
           updated.add(ref.id)
@@ -122,6 +123,7 @@ export default function Attendance({ user }: { user: AppUser }) {
       })
 
       await batch.commit()
+      await createAuditLog(user.id, user.email, 'mark', 'attendance', selectedClassId, `Marked attendance for ${Object.keys(attendance).length} students on ${date}`)
       showToast('Attendance saved!', 'success')
     } catch (err) {
       console.error(err)

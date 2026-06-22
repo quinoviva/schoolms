@@ -1,0 +1,1 @@
+import{j as e}from"./react-D3vqvMkP.js";import{L as t}from"./icons-ClKSM9lj.js";function n({text:s="Loading..."}){return e.jsxs("div",{className:"flex items-center justify-center gap-2.5 text-muted-foreground py-16",children:[e.jsx(t,{size:18,className:"animate-spin"}),e.jsx("span",{className:"text-sm font-medium",children:s})]})}export{n as S};

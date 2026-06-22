@@ -2,7 +2,7 @@
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
 import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
-import { db, auth, functions, type AppUser, type Role } from '@pbclc/shared'
+import { db, auth, functions, sanitizeString, type AppUser, type Role } from '@pbclc/shared'
 import { Search, Plus, AlertTriangle, Pencil, Upload, Users, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -65,10 +65,10 @@ export default function UserManagement() {
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password)
       await setDoc(doc(db, 'users', cred.user.uid), {
         id: cred.user.uid,
-        email: form.email,
-        name: form.name,
+        email: sanitizeString(form.email, 255),
+        name: sanitizeString(form.name, 100),
         role: form.role,
-        section: form.role === 'student' ? form.section : '',
+        section: form.role === 'student' ? sanitizeString(form.section, 50) : '',
         createdAt: Date.now(),
       } satisfies AppUser)
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Created user: ' + form.name)
@@ -112,8 +112,8 @@ export default function UserManagement() {
     setEditSaving(true)
     try {
       await updateDoc(doc(db, 'users', editTarget.id), {
-        name: editForm.name,
-        section: editForm.role === 'student' ? editForm.section : '',
+        name: sanitizeString(editForm.name, 100),
+        section: editForm.role === 'student' ? sanitizeString(editForm.section, 50) : '',
         role: editForm.role,
       })
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'update', 'users', editTarget.id, 'Updated user: ' + editForm.name)
@@ -191,10 +191,10 @@ export default function UserManagement() {
           const cred = await createUserWithEmailAndPassword(auth, email, password)
           await setDoc(doc(db, 'users', cred.user.uid), {
             id: cred.user.uid,
-            email,
-            name: name || email,
+            email: sanitizeString(email, 255),
+            name: sanitizeString(name || email, 100),
             role,
-            section: role === 'student' ? section : '',
+            section: role === 'student' ? sanitizeString(section, 50) : '',
             createdAt: Date.now(),
           } satisfies AppUser)
           await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Imported user: ' + (name || email))
@@ -230,7 +230,7 @@ export default function UserManagement() {
       try {
         const cred = await createUserWithEmailAndPassword(auth, email, password)
         await setDoc(doc(db, 'users', cred.user.uid), {
-          id: cred.user.uid, email, name, role: 'student', section, createdAt: Date.now(),
+          id: cred.user.uid, email: sanitizeString(email, 255), name: sanitizeString(name, 100), role: 'student', section: sanitizeString(section, 50), createdAt: Date.now(),
         } satisfies AppUser)
         await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Bulk created: ' + name)
         return { line: lineNum, id: idNum, name, success: true }

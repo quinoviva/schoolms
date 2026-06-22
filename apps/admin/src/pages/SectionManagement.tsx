@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, type Section } from '@pbclc/shared'
+import { db, sanitizeString, type Section } from '@pbclc/shared'
 import { Search, Plus, Pencil } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -32,8 +32,8 @@ export default function SectionManagement() {
     setSaving(true)
     try {
       await addDoc(collection(db, 'sections'), {
-        name: form.name,
-        gradeLevel: form.gradeLevel,
+        name: sanitizeString(form.name, 50),
+        gradeLevel: sanitizeString(form.gradeLevel, 10),
       } satisfies Omit<Section, 'id'>)
       setForm({ name: '', gradeLevel: '' })
       setShowForm(false)
@@ -66,8 +66,8 @@ export default function SectionManagement() {
     setEditSaving(true)
     try {
       await updateDoc(doc(db, 'sections', editTarget.id), {
-        name: editForm.name,
-        gradeLevel: editForm.gradeLevel,
+        name: sanitizeString(editForm.name, 50),
+        gradeLevel: sanitizeString(editForm.gradeLevel, 10),
       })
       showToast('Section updated successfully', 'success')
       setEditTarget(null)

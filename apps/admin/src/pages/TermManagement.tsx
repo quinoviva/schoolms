@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, type AcademicTerm } from '@pbclc/shared'
+import { db, sanitizeString, type AcademicTerm } from '@pbclc/shared'
 import { Plus, AlertTriangle, Archive, Eye, EyeOff } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -31,8 +31,8 @@ export default function TermManagement() {
       const activeExists = terms.some(t => t.isActive)
 
       await addDoc(collection(db, 'terms'), {
-        label: form.label,
-        semester: form.semester,
+        label: sanitizeString(form.label, 100),
+        semester: sanitizeString(form.semester, 50),
         isActive: !activeExists,
         createdAt: Date.now(),
       } satisfies Omit<AcademicTerm, 'id'>)
