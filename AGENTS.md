@@ -21,7 +21,7 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 - **Two independent SPAs** sharing a Firebase project via `@academix/shared` (source-level dep, no build step). Each has its own `vite.config.ts`, `tsconfig.json`, `.env`.
 - **Manual `useState` page routing** — no `<Routes>` or React Router imports. Look for `const [page, setPage] = useState(...)` + `switch (page)`. Pages are function components keyed by string.
 - **Admin role guard** in `admin/src/contexts/AuthContext.tsx` — immediately signs out any user whose Firestore profile does not have `role === 'admin'`. Admin `signIn` also checks role before allowing login.
-- **Firebase email convention**: stored internally as `{id}@schoolms.edu`. LoginPage auto-appends `@schoolms.edu` if the input has no `@`. Password reset also auto-appends. `@x` is rejected by Firebase Auth — use `.edu` domains only.
+- **Firebase email convention**: stored internally as `{id}@schoolms.edu`. LoginPage auto-appends `VITE_EMAIL_DOMAIN` (default `@schoolms.edu`) if the input has no `@`. Password reset also auto-appends. `@x` is rejected by Firebase Auth — use `.edu` domains only.
 - **Admin creates subjects with grade levels and grading components**. Teachers cannot create subjects — they only create class instances (section + schedule + room) from admin-assigned subjects in `TeacherClasses.tsx`.
 - **Subjects have `gradeLevel`** (e.g. `G7`) — teacher classes view groups subjects by this field.
 - **Grading components** (`{ name, weight }[]`) are defined per-subject by admin, weights must sum to 100%. Scores stored per-component in `grades` collection; final grade computed client-side.
@@ -31,6 +31,9 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 - **Toast** system via `showToast()` + `<ToastContainer />` in each app. **ConfirmDialog**, **Spinner** in `components/ui/`.
 - **Google Drive integration**: Teachers paste Drive share URLs in `materials` collection — students see them and click to open in Drive. `extractDriveFileId()` parses URLs, `getDriveViewUrl()` builds the redirect link.
 - **Grade computation** in `packages/shared/src/utils/grades.ts` — DepEd transmutation table (60–100 scale), `computeFinalGrade()`, `transmute()`, `getGradeDescriptor()`. Report Cards page prints SF9-style cards per student.
+- **`mergeClassesWithSubjects()`** in `packages/shared/src/utils/merge.ts` — fetches subjects by ID and merges them into class objects. Used by 9 teacher portal pages.
+- **`schoolQuery(colRef, schoolId, ...constraints)`** in `packages/shared/src/utils/query.ts` — wraps `query()` with `where('schoolId', '==', schoolId)` for multi-tenant scoping.
+- **Email domain** configured via `VITE_EMAIL_DOMAIN` env var (defaults to `@schoolms.edu`). Login pages auto-append when input lacks `@`.
 
 ## Firestore collections
 
