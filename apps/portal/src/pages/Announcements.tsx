@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, addDoc, getDocs, doc, getDoc, orderBy } from 'firebase/firestore'
-import { Megaphone } from 'lucide-react'
-import { db, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { collection, query, where, onSnapshot, addDoc, orderBy, getDocs } from 'firebase/firestore'
+import { Megaphone, Plus, Send, X } from 'lucide-react'
+import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -31,14 +31,14 @@ export default function Announcements({ user }: { user: AppUser }) {
     async function init() {
       if (user.role !== 'teacher') return
       const snap = await getDocs(query(collection(db, 'classes'), where('teacherId', '==', user.id)))
-      const result: (Class & { subject: Subject })[] = []
-      for (const d of snap.docs) {
-        const cls = { id: d.id, ...d.data() } as Class
-        const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-        if (!subjSnap.exists()) continue
-        const subject = { id: subjSnap.id, ...subjSnap.data() } as Subject
-        result.push({ ...cls, subject })
-      }
+      const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+      const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+      const result = classData
+        .map(cls => {
+          const subject = subjectMap.get(cls.subjectId)
+          return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
       setTeacherClasses(result)
     }
     init()
@@ -56,18 +56,13 @@ export default function Announcements({ user }: { user: AppUser }) {
       )
       return unsub
     } else {
-      let unsubAnnounce: (() => void) | null = null
-      const unsubEnroll = onSnapshot(
+      return onSnapshot(
         query(collection(db, 'enrollments'), where('studentId', '==', user.id)),
         (enrollSnap) => {
           const classIds = enrollSnap.docs.map(d => (d.data() as Enrollment).classId)
           setClassIdsSnapshot(classIds)
         }
       )
-      return () => {
-        unsubEnroll()
-        unsubAnnounce?.()
-      }
     }
   }, [user])
 
@@ -84,22 +79,23 @@ export default function Announcements({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'announcements'), where('classId', 'in', classIds), orderBy('createdAt', 'desc')),
       async (annSnap) => {
-        const list = await Promise.all(
-          annSnap.docs.map(async (d) => {
-            const a = { id: d.id, ...d.data() } as Announcement
-            let teacherName = ''
-            let className = ''
-            const userSnap = await getDoc(doc(db, 'users', a.teacherId))
-            if (userSnap.exists()) teacherName = userSnap.data().name || ''
-            const classSnap = await getDoc(doc(db, 'classes', a.classId))
-            if (classSnap.exists()) {
-              const clsData = classSnap.data() as Class
-              const subjSnap = await getDoc(doc(db, 'subjects', clsData.subjectId))
-              if (subjSnap.exists()) className = (subjSnap.data() as Subject).code
-            }
-            return { ...a, teacherName, className }
-          })
-        )
+        const annList = annSnap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement))
+        const teacherIds = [...new Set(annList.map(a => a.teacherId))]
+        const classIds = [...new Set(annList.map(a => a.classId))]
+        const [userMap, classesMap] = await Promise.all([
+          fetchUsersByIds(teacherIds),
+          fetchDocsByIds<Class>('classes', classIds),
+        ])
+        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
+        const subjectsMap = await fetchSubjectsByIds(subjectIds)
+        const list = annList.map(a => ({
+          ...a,
+          teacherName: userMap.get(a.teacherId)?.name || '',
+          className: (() => {
+            const cls = classesMap.get(a.classId)
+            return cls ? (subjectsMap.get(cls.subjectId)?.code || '') : ''
+          })(),
+        }))
         setAnnouncements(list)
         setLoading(false)
       }

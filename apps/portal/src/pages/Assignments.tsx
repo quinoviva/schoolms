@@ -1,8 +1,8 @@
 ﻿import { useEffect, useState, useRef } from 'react'
-import { collection, query, where, onSnapshot, addDoc, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { BookOpen, CheckCircle2, Clock, FileText, Upload, Download, Paperclip } from 'lucide-react'
-import { db, storage, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 
@@ -34,14 +34,14 @@ export default function Assignments({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
-        const result: (Class & { subject: Subject })[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (subjSnap.exists()) {
-            result.push({ ...cls, subject: { id: subjSnap.id, ...subjSnap.data() } as Subject })
-          }
-        }
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
+        const result = classData
+          .map(cls => {
+            const subject = subjectMap.get(cls.subjectId)
+            return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+          })
+          .filter(Boolean) as (Class & { subject: Subject })[]
         setTeacherClasses(result)
       }
     )
@@ -65,18 +65,20 @@ export default function Assignments({ user }: { user: AppUser }) {
     setSelectedAssignment(assignment)
     setLoadingDetails(true)
     const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', assignment.classId)))
-    const students = await Promise.all(
-      enrollSnap.docs.map(async (d) => {
-        const enrollment = d.data() as Enrollment
-        const userSnap = await getDoc(doc(db, 'users', enrollment.studentId))
-        const studentName = userSnap.exists() ? userSnap.data().name : 'Unknown'
-        const subSnap = await getDocs(
-          query(collection(db, 'submissions'), where('assignmentId', '==', assignment.id), where('studentId', '==', enrollment.studentId))
-        )
-        const submission = subSnap.empty ? null : { id: subSnap.docs[0].id, ...subSnap.docs[0].data() } as Submission
-        return { studentId: enrollment.studentId, studentName, submission }
-      })
-    )
+    const enrollments = enrollSnap.docs.map(d => d.data() as Enrollment)
+    const studentIds = enrollments.map(e => e.studentId)
+
+    const [userMap, subSnap] = await Promise.all([
+      fetchUsersByIds(studentIds),
+      getDocs(query(collection(db, 'submissions'), where('assignmentId', '==', assignment.id))),
+    ])
+    const subMap = new Map<string, Submission>(subSnap.docs.map(d => [d.data().studentId, { id: d.id, ...d.data() } as Submission]))
+
+    const students = enrollments.map(e => ({
+      studentId: e.studentId,
+      studentName: userMap.get(e.studentId)?.name || 'Unknown',
+      submission: subMap.get(e.studentId) ?? null,
+    }))
     setSubmissionDetails(students)
     setLoadingDetails(false)
   }
@@ -309,22 +311,25 @@ export default function Assignments({ user }: { user: AppUser }) {
                           <Download size={11} /> {s.submission.fileName || 'Download file'}
                         </a>
                       )}
-                      {s.submission && s.submission.score === null && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <input type="number" min={0} max={selectedAssignment.maxScore}
-                            placeholder="Score"
-                            value={gradingScores[s.submission.id] || ''}
-                            onChange={e => setGradingScores(p => ({ ...p, [s.submission.id]: e.target.value }))}
-                            className="w-20 px-2 py-1 rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]/25" />
-                          <button onClick={() => {
-                            const score = parseInt(gradingScores[s.submission.id] || '0')
-                            if (!isNaN(score)) handleGradeSubmission(s.submission.id, score)
-                          }}
-                            className="text-xs px-2.5 py-1 rounded bg-[#1e3a5f] text-white font-semibold hover:bg-[#16304f] transition-colors">
-                            Grade
-                          </button>
-                        </div>
-                      )}
+                      {s.submission && s.submission.score === null && (() => {
+                        const sub = s.submission
+                        return (
+                          <div className="flex items-center gap-2 mt-2">
+                            <input type="number" min={0} max={selectedAssignment.maxScore}
+                              placeholder="Score"
+                              value={gradingScores[sub.id] || ''}
+                              onChange={e => setGradingScores(p => ({ ...p, [sub.id]: e.target.value }))}
+                              className="w-20 px-2 py-1 rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]/25" />
+                            <button onClick={() => {
+                              const score = parseInt(gradingScores[sub.id] || '0')
+                              if (!isNaN(score)) handleGradeSubmission(sub.id, score)
+                            }}
+                              className="text-xs px-2.5 py-1 rounded bg-[#1e3a5f] text-white font-semibold hover:bg-[#16304f] transition-colors">
+                              Grade
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -380,7 +385,7 @@ export default function Assignments({ user }: { user: AppUser }) {
             submittingId={submittingId}
             submissionText={submissionText}
             onSubmissionTextChange={setSubmissionText}
-            onSubmit={handleSubmit}
+            onSubmit={handleSubmitWithFile}
           />
         ))}
       </div>
@@ -398,16 +403,15 @@ function StudentClassSelector({ user, selectedClassId, onSelect }: { user: AppUs
       async (snap) => {
         const classIds = snap.docs.map(d => (d.data() as Enrollment).classId)
         if (!classIds.length) { setClasses([]); setLoading(false); return }
-        const result: { id: string; label: string }[] = []
-        for (const cid of classIds) {
-          const classSnap = await getDoc(doc(db, 'classes', cid))
-          if (!classSnap.exists()) continue
-          const cls = { id: classSnap.id, ...classSnap.data() } as Class
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (!subjSnap.exists()) continue
-          const subject = subjSnap.data() as Subject
-          result.push({ id: cid, label: `${subject.code} â€” ${cls.section}` })
-        }
+        const classesMap = await fetchDocsByIds<Class>('classes', classIds)
+        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
+        const subjectsMap = await fetchSubjectsByIds(subjectIds)
+        const result = [...classesMap.values()]
+          .map(cls => {
+            const subject = subjectsMap.get(cls.subjectId)
+            return subject ? { id: cls.id!, label: `${subject.code} — ${cls.section}` } : null
+          })
+          .filter(Boolean) as { id: string; label: string }[]
         setClasses(result)
         setLoading(false)
       }

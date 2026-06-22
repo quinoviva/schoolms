@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit, updateDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, orderBy, limit, updateDoc } from 'firebase/firestore'
 import { BookOpen, Award, TrendingUp, CheckCircle2, Megaphone } from 'lucide-react'
-import { db, type AppUser, type GradeScore, type AttendanceRecord, type Subject, type Class, type Notification } from '@pbclc/shared'
+import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type GradeScore, type AttendanceRecord, type Subject, type Class, type Notification } from '@pbclc/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface SubjectGrade {
@@ -104,64 +104,53 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
     return unsub
   }, [classIds])
 
-  useEffect(() => {
-    async function compute() {
-      if (!classIds.length) {
-        setSubjectGrades([])
-        setAverageGrade(null)
-        setAttendanceRate(null)
-        setReady(true)
-        return
-      }
-
-      const classesMap = new Map<string, Class>()
-      const subjectsMap = new Map<string, Subject>()
-
-      for (const cid of classIds) {
-        const classSnap = await getDoc(doc(db, 'classes', cid))
-        if (!classSnap.exists()) continue
-        const cls = { id: classSnap.id, ...classSnap.data() } as Class
-        classesMap.set(cid, cls)
-        if (!subjectsMap.has(cls.subjectId)) {
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (subjSnap.exists()) {
-            subjectsMap.set(cls.subjectId, { id: subjSnap.id, ...subjSnap.data() } as Subject)
-          }
-        }
-      }
-
-      const grades: SubjectGrade[] = []
-      for (const [, cls] of classesMap) {
-        const subject = subjectsMap.get(cls.subjectId)
-        if (!subject) continue
-        const scores = allScores.filter(s => s.classId === cls.id)
-        let final = 0
-        for (const comp of subject.gradingComponents) {
-          const compScores = scores.filter(s => s.componentId === comp.id)
-          const avg = compScores.length
-            ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length
-            : 0
-          final += avg * (comp.weight / 100)
-        }
-        grades.push({ code: subject.code, title: subject.title, grade: Math.round(final) })
-      }
-      setSubjectGrades(grades)
-
-      if (grades.length) {
-        setAverageGrade(Math.round(grades.reduce((a, g) => a + g.grade, 0) / grades.length))
-      } else {
-        setAverageGrade(null)
-      }
-
-      if (attendanceRecords.length) {
-        const present = attendanceRecords.filter(a => a.status === 'PRESENT').length
-        setAttendanceRate(Math.round((present / attendanceRecords.length) * 100))
-      } else {
-        setAttendanceRate(null)
-      }
-
+  async function compute() {
+    if (!classIds.length) {
+      setSubjectGrades([])
+      setAverageGrade(null)
+      setAttendanceRate(null)
       setReady(true)
+      return
     }
+
+    const classesMap = await fetchDocsByIds<Class>('classes', classIds)
+    const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId).filter(Boolean))]
+    const subjectsMap = await fetchSubjectsByIds(subjectIds)
+
+    const grades: SubjectGrade[] = []
+    for (const cls of classesMap.values()) {
+      const subject = subjectsMap.get(cls.subjectId)
+      if (!subject) continue
+      const scores = allScores.filter(s => s.classId === cls.id)
+      let final = 0
+      for (const comp of subject.gradingComponents) {
+        const compScores = scores.filter(s => s.componentId === comp.id)
+        const avg = compScores.length
+          ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length
+          : 0
+        final += avg * (comp.weight / 100)
+      }
+      grades.push({ code: subject.code, title: subject.title, grade: Math.round(final) })
+    }
+    setSubjectGrades(grades)
+
+    if (grades.length) {
+      setAverageGrade(Math.round(grades.reduce((a, g) => a + g.grade, 0) / grades.length))
+    } else {
+      setAverageGrade(null)
+    }
+
+    if (attendanceRecords.length) {
+      const present = attendanceRecords.filter(a => a.status === 'PRESENT').length
+      setAttendanceRate(Math.round((present / attendanceRecords.length) * 100))
+    } else {
+      setAttendanceRate(null)
+    }
+
+    setReady(true)
+  }
+
+  useEffect(() => {
     compute()
   }, [classIds, allScores, attendanceRecords])
 

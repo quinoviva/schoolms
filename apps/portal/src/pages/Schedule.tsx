@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState, useMemo } from 'react'
-import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { CalendarDays } from 'lucide-react'
-import { db, type AppUser, type Class, type Subject, type Enrollment } from '@pbclc/shared'
+import { db, fetchSubjectsByIds, fetchDocsByIds, type AppUser, type Class, type Subject, type Enrollment } from '@pbclc/shared'
 import Spinner from '../components/ui/Spinner'
 
 interface ScheduleItem {
@@ -69,12 +69,12 @@ export default function Schedule({ user }: { user: AppUser }) {
     const unsub = onSnapshot(
       query(collection(db, 'classes'), where('teacherId', '==', user.id)),
       async (snap) => {
+        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
+        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
         const result: ScheduleItem[] = []
-        for (const d of snap.docs) {
-          const cls = { id: d.id, ...d.data() } as Class
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (!subjSnap.exists()) continue
-          const subject = { id: subjSnap.id, ...subjSnap.data() } as Subject
+        for (const cls of classData) {
+          const subject = subjectMap.get(cls.subjectId)
+          if (!subject) continue
           const { days, time } = parseSchedule(cls.schedule)
           if (!days.length) continue
           result.push({
@@ -99,18 +99,17 @@ export default function Schedule({ user }: { user: AppUser }) {
       async (snap) => {
         const enrollmentIds = snap.docs.map(d => (d.data() as Enrollment).classId)
         if (!enrollmentIds.length) { setItems([]); return }
+        const classesMap = await fetchDocsByIds<Class>('classes', enrollmentIds)
+        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
+        const subjectMap = await fetchSubjectsByIds(subjectIds)
         const result: ScheduleItem[] = []
-        for (const classId of enrollmentIds) {
-          const classSnap = await getDoc(doc(db, 'classes', classId))
-          if (!classSnap.exists()) continue
-          const cls = { id: classSnap.id, ...classSnap.data() } as Class
-          const subjSnap = await getDoc(doc(db, 'subjects', cls.subjectId))
-          if (!subjSnap.exists()) continue
-          const subject = { id: subjSnap.id, ...subjSnap.data() } as Subject
+        for (const cls of classesMap.values()) {
+          const subject = subjectMap.get(cls.subjectId)
+          if (!subject) continue
           const { days, time } = parseSchedule(cls.schedule)
           if (!days.length) continue
           result.push({
-            classId: cls.id,
+            classId: cls.id!,
             subjectCode: subject.code,
             subjectTitle: subject.title,
             section: cls.section,

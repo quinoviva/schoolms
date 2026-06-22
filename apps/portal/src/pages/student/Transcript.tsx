@@ -65,7 +65,7 @@ export default function Transcript({ user }: { user: AppUser }) {
       const terms = termsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
 
       const batchSize = 10
-      const result: TermRecord[] = []
+      const temp: { cls: Class; subject: Subject; grade: number }[] = []
       const released = classIds.filter(cid => releasedSet.has(cid))
 
       for (let i = 0; i < released.length; i += batchSize) {
@@ -89,13 +89,13 @@ export default function Transcript({ user }: { user: AppUser }) {
             const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
             final += avg * (comp.weight / 100)
           }
-          result.push({ cls, subject, grade: Math.round(final) })
+          temp.push({ cls, subject, grade: Math.round(final) })
         }
       }
 
       const recordsByTerm = new Map<string, TermRecord>()
       for (const term of terms) {
-        const termClasses = result
+        const termClasses = temp
           .filter(r => r.cls.termId === term.id)
           .map(r => ({ subject: r.subject, grade: r.grade }))
         if (termClasses.length) {
