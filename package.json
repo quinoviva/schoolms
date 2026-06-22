@@ -1,13 +1,14 @@
 {
-  "name": "pbclc",
+  "name": "academix",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n portal,admin -c blue,yellow \"pnpm dev:portal\" \"pnpm dev:admin\"",
-    "dev:portal": "pnpm --filter @pbclc/portal dev",
-    "dev:admin": "pnpm --filter @pbclc/admin dev",
+    "dev": "concurrently -n portal,admin,super -c blue,yellow,magenta \"pnpm dev:portal\" \"pnpm dev:admin\" \"pnpm dev:super-admin\"",
+    "dev:portal": "pnpm --filter @academix/portal dev",
+    "dev:admin": "pnpm --filter @academix/admin dev",
+    "dev:super-admin": "pnpm --filter @academix/super-admin dev",
     "shared:build": "echo 'Shared is a source-level dep — no build needed'",
-    "build": "pnpm --filter @pbclc/portal build && pnpm --filter @pbclc/admin build"
+    "build": "pnpm --filter @academix/portal build && pnpm --filter @academix/admin build && pnpm --filter @academix/super-admin build"
   },
   "pnpm": {
     "overrides": {
@@ -21,6 +22,7 @@
     ]
   },
   "devDependencies": {
-    "concurrently": "^10.0.3"
+    "concurrently": "^10.0.3",
+    "firebase-admin": "^14.0.0"
   }
 }

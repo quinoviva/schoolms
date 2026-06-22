@@ -1,4 +1,16 @@
-export type Role = 'student' | 'teacher' | 'admin'
+export type Role = 'student' | 'teacher' | 'admin' | 'super_admin'
+
+export interface School {
+  id: string
+  name: string
+  slug: string
+  domain?: string
+  plan: 'free' | 'basic' | 'pro'
+  isActive: boolean
+  ownerName: string
+  ownerEmail: string
+  createdAt: number
+}
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'EXCUSED' | 'TARDY'
 
@@ -7,6 +19,7 @@ export interface AppUser {
   email: string
   name: string
   role: Role
+  schoolId?: string
   section?: string
   nfcUid?: string
   createdAt: number
@@ -18,6 +31,7 @@ export interface AcademicTerm {
   semester: string
   isActive: boolean
   isArchived?: boolean
+  schoolId?: string
   createdAt: number
 }
 
@@ -35,6 +49,7 @@ export interface Subject {
   termId: string
   gradeLevel: string
   gradingComponents: GradingComponent[]
+  schoolId?: string
   createdAt: number
 }
 
@@ -46,6 +61,7 @@ export interface Class {
   schedule: string
   room: string
   termId: string
+  schoolId?: string
   createdAt: number
 }
 
@@ -54,6 +70,7 @@ export interface Enrollment {
   studentId: string
   classId: string
   termId: string
+  schoolId?: string
 }
 
 export interface GradeScore {
@@ -63,6 +80,7 @@ export interface GradeScore {
   componentId: string
   score: number
   maxScore: number
+  schoolId?: string
 }
 
 export interface AttendanceRecord {
@@ -73,6 +91,7 @@ export interface AttendanceRecord {
   status: AttendanceStatus
   remarks: string
   recordedBy: string
+  schoolId?: string
 }
 
 export interface Announcement {
@@ -81,6 +100,7 @@ export interface Announcement {
   teacherId: string
   title: string
   content: string
+  schoolId?: string
   createdAt: number
 }
 
@@ -92,6 +112,7 @@ export interface Assignment {
   description: string
   dueDate: string
   maxScore: number
+  schoolId?: string
   createdAt: number
 }
 
@@ -102,6 +123,7 @@ export interface Submission {
   fileUrl: string
   fileName: string
   score: number | null
+  schoolId?: string
   submittedAt: number
   gradedAt: number | null
 }
@@ -113,6 +135,7 @@ export interface Notification {
   message: string
   read: boolean
   relatedId: string
+  schoolId?: string
   createdAt: number
 }
 
@@ -120,6 +143,7 @@ export interface Section {
   id: string
   name: string
   gradeLevel: string
+  schoolId?: string
 }
 
 export interface AuditLog {
@@ -131,6 +155,7 @@ export interface AuditLog {
   documentId: string
   details: string
   timestamp: number
+  schoolId?: string
 }
 
 export interface GradeRelease {
@@ -139,6 +164,7 @@ export interface GradeRelease {
   teacherId: string
   releasedAt: number
   isReleased: boolean
+  schoolId?: string
 }
 
 export interface DriveLink {
@@ -149,6 +175,7 @@ export interface DriveLink {
   driveUrl: string
   driveFileId: string
   mimeType?: string
+  schoolId?: string
   createdAt: number
 }
 
@@ -171,6 +198,7 @@ export interface SeatPlan {
   canvasWidth: number
   canvasHeight: number
   elements: ClassroomElement[]
+  schoolId?: string
   createdAt: number
   updatedAt: number
 }
