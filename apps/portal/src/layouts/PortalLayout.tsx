@@ -39,7 +39,7 @@ export default function PortalLayout({
   }, [])
 
   async function markRead(id: string) {
-    try { await updateDoc(doc(db, 'notifications', id), { read: true }) } catch {}
+    try { await updateDoc(doc(db, 'notifications', id), { read: true }) } catch (err) { console.error('Failed to mark notification read:', err) }
   }
 
   const unreadCount = notifications.filter(n => !n.read).length

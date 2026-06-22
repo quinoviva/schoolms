@@ -158,7 +158,7 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
   async function markNotificationRead(id: string) {
     try {
       await updateDoc(doc(db, 'notifications', id), { read: true })
-    } catch {}
+    } catch (err) { console.error('Failed to mark notification read:', err) }
   }
 
   if (!ready) return <Spinner />

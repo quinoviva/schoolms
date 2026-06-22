@@ -133,9 +133,9 @@ export default function GradeEntry({ user }: { user: AppUser }) {
       }
       existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => batch.delete(doc(db, 'grades', eg.id)))
       await batch.commit()
-      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(() => {})
+      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(console.error)
       setDirty(false)
-    } catch {} finally { setSaving(false) }
+    } catch (err) { console.error('Auto-save failed:', err); showToast('Auto-save failed. Changes will be retried.', 'error') } finally { setSaving(false) }
   }, [selectedClassId, students, components, scores, dirty, schoolId])
 
   useEffect(() => {
