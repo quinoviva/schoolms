@@ -203,7 +203,7 @@ export default function Enrollments() {
             onChange={e => setSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
           {search && (
-            <button onClick={() => setSearch('')} className="text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => setSearch('')} aria-label="Clear search" className="text-muted-foreground hover:text-foreground transition-colors">
               <X size={14} />
             </button>
           )}
@@ -244,12 +244,12 @@ export default function Enrollments() {
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
           <span>{filteredEnrollments.length} enrollments (page {page})</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} aria-label="Previous page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronLeft size={14} />
             </button>
             <span className="font-medium">{page}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={!hasMore}
+            <button onClick={() => setPage(p => p + 1)} disabled={!hasMore} aria-label="Next page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronRight size={14} />
             </button>

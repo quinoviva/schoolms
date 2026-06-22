@@ -81,7 +81,7 @@ export default function AdminLayout({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="sticky top-0 z-10 bg-background/96 backdrop-blur-sm border-b border-border px-4 sm:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <button onClick={() => setSidebarOpen(true)} aria-label="Open sidebar" className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
               <Menu size={18} className="text-muted-foreground" />
             </button>
             <p className="text-xs text-muted-foreground">ACADEMIX â€” Admin</p>

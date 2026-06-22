@@ -66,7 +66,7 @@ export default function PortalLayout({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="sticky top-0 z-10 bg-background/96 backdrop-blur-sm border-b border-border px-4 sm:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <button onClick={() => setSidebarOpen(true)} aria-label="Open sidebar" className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
               <Menu size={18} className="text-muted-foreground" />
             </button>
             <p className="text-xs text-muted-foreground hidden sm:block">
@@ -76,7 +76,7 @@ export default function PortalLayout({
           <div className="flex items-center gap-3 ml-auto">
             <ThemeToggle />
             <div ref={notifRef} className="relative">
-              <button onClick={() => setShowNotifs(!showNotifs)} className="relative p-1.5 rounded-lg hover:bg-muted transition-colors">
+              <button onClick={() => setShowNotifs(!showNotifs)} aria-label="Toggle notifications" className="relative p-1.5 rounded-lg hover:bg-muted transition-colors">
                 <Bell size={15} className="text-muted-foreground" />
                 {unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center font-bold">{unreadCount}</span>}
               </button>

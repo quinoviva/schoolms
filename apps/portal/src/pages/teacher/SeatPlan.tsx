@@ -304,7 +304,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           className={`rounded-lg bg-[#1e3a5f] flex items-center justify-center shadow-md select-none ${isEdit ? 'hover:ring-2 hover:ring-[#c4a32a]' : ''}`}
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-xs font-semibold tracking-widest uppercase">{el.label || 'Blackboard'}</span>
-          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
+          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)} aria-label="Delete blackboard"
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>}
         </div>
       )
@@ -316,7 +316,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
           className={`rounded-lg bg-[#8b6914]/80 flex items-center justify-center shadow-sm select-none ${isEdit ? 'hover:ring-2 hover:ring-[#c4a32a]' : ''}`}
           onMouseDown={isEdit ? (e) => startDrag(e, el) : undefined}>
           <span className="text-white text-[0.6rem] font-semibold">{el.label || "Teacher's Desk"}</span>
-          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)}
+          {isEdit && <button onMouseDown={e => e.stopPropagation()} onClick={() => setDeletingElementId(el.id)} aria-label="Delete teacher desk"
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.55rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>}
         </div>
       )
@@ -346,7 +346,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
               {selectedStudentId ? 'Assign →' : 'Empty'}
             </span>
           )}
-          <button onMouseDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeElement(el.id) }}
+          <button onMouseDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeElement(el.id) }} aria-label="Delete seat"
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[0.5rem] flex items-center justify-center hover:bg-red-600 shadow">×</button>
         </div>
       )

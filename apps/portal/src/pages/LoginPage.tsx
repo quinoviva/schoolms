@@ -5,6 +5,8 @@ import { auth } from '@academix/shared'
 import { showToast } from '../components/ui/toast'
 import { useAuth } from '../contexts/AuthContext'
 
+const EMAIL_DOMAIN = import.meta.env.VITE_EMAIL_DOMAIN || '@schoolms.edu'
+
 export default function LoginPage() {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
@@ -20,7 +22,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      await signIn(email.includes('@') ? email : email + '@schoolms.edu', password)
+      await signIn(email.includes('@') ? email : email + EMAIL_DOMAIN, password)
     } catch (err: any) {
       setError(err.message || 'Invalid ID number or password.')
     } finally {
@@ -72,8 +74,8 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">ID Number</label>
-              <input
+              <label htmlFor="email" className="block text-sm font-semibold text-foreground mb-1.5">ID Number</label>
+              <input id="email"
                 type="text"
                 value={email}
                 onChange={e => { setEmail(e.target.value); setError('') }}
@@ -82,8 +84,8 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
-              <input
+              <label htmlFor="password" className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
+              <input id="password"
                 type="password"
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError('') }}
@@ -122,7 +124,8 @@ export default function LoginPage() {
           <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-lg text-foreground">Reset Password</h3>
             <p className="text-sm text-muted-foreground mt-1.5 mb-4">Enter your ID number to receive a password reset link.</p>
-            <input type="text" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+            <label htmlFor="reset-email" className="sr-only">ID Number for password reset</label>
+            <input id="reset-email" type="text" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
               placeholder="00-0000-00"
               className="w-full px-4 py-2.5 rounded-lg border border-border bg-[#f5f1eb] text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 mb-4" />
             <div className="flex justify-end gap-3">
@@ -130,7 +133,7 @@ export default function LoginPage() {
                 className="px-4 py-2 rounded-lg border border-border text-sm font-semibold text-foreground">Cancel</button>
               <button disabled={resetSending || !resetEmail} onClick={async () => {
                 setResetSending(true)
-                const fullEmail = resetEmail.includes('@') ? resetEmail : resetEmail + '@schoolms.edu'
+                const fullEmail = resetEmail.includes('@') ? resetEmail : resetEmail + EMAIL_DOMAIN
                 try {
                   await sendPasswordResetEmail(auth, fullEmail)
                   showToast('Reset link sent! Check your email.', 'success')

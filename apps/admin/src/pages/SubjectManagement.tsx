@@ -250,7 +250,7 @@ export default function SubjectManagement() {
                     <span className="text-xs text-muted-foreground">%</span>
                   </div>
                   {components.length > 1 && (
-                    <button type="button" onClick={() => removeComponent(c.id)}
+                    <button type="button" onClick={() => removeComponent(c.id)} aria-label="Remove component"
                       className="text-red-400 hover:text-red-600 text-xs font-bold px-1">×</button>
                   )}
                 </div>
@@ -400,7 +400,7 @@ export default function SubjectManagement() {
                         className="w-20 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-center" />
                       <span className="text-xs text-muted-foreground">%</span>
                       {editComponents.length > 1 && (
-                        <button onClick={() => setEditComponents(prev => prev.filter(p => p.id !== c.id))}
+                        <button onClick={() => setEditComponents(prev => prev.filter(p => p.id !== c.id))} aria-label="Remove edit component"
                           className="text-red-400 hover:text-red-600 text-xs font-bold px-1">×</button>
                       )}
                     </div>

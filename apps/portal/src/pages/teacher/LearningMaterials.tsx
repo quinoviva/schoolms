@@ -178,7 +178,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
                   className="text-xs text-[#1e3a5f] hover:text-[#8b6914] flex items-center gap-1 font-semibold transition-colors">
                   <ExternalLink size={11} /> Open in Drive
                 </a>
-                <button onClick={() => setDeleteTarget({ id: m.id, title: m.title })}
+                <button onClick={() => setDeleteTarget({ id: m.id, title: m.title })} aria-label="Delete material"
                   className="text-xs text-red-400 hover:text-red-600 lg:opacity-0 lg:group-hover:opacity-100 transition-all">
                   <Trash2 size={13} />
                 </button>

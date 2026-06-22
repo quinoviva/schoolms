@@ -228,7 +228,7 @@ export default function UserManagement() {
         return { line: lineNum, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: ID,Last,First,Section,Birthday' }
       }
       const [idNum, lastName, firstName, section, birthdate] = parts
-      const email = `${idNum}@schoolms.edu`
+      const email = `${idNum}${import.meta.env.VITE_EMAIL_DOMAIN || '@schoolms.edu'}`
       const password = `${lastName}.${firstName}(${birthdate || ''})`
       const name = `${firstName} ${lastName}`
       try {
@@ -440,12 +440,12 @@ export default function UserManagement() {
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
           <span>Showing {filtered.length} of ~{totalEstimate} users</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => goToPage(safePage - 1)} disabled={safePage <= 1}
+            <button onClick={() => goToPage(safePage - 1)} disabled={safePage <= 1} aria-label="Previous page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronLeft size={14} />
             </button>
             <span className="font-medium">{safePage}</span>
-            <button onClick={() => goToPage(safePage + 1)} disabled={filtered.length < PAGE_SIZE}
+            <button onClick={() => goToPage(safePage + 1)} disabled={filtered.length < PAGE_SIZE} aria-label="Next page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronRight size={14} />
             </button>
