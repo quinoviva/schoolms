@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
 import { db, auth, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@pbclc/shared'
-import { Plus, Pencil, Search, AlertTriangle } from 'lucide-react'
+import { Plus, Pencil, Search, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
 import { createAuditLog } from '../utils/auditLog'
+
+const PAGE_SIZE = 20
 
 export default function SubjectManagement() {
   const [subjects, setSubjects] = useState<(Subject & { id: string })[]>([])
@@ -25,28 +27,42 @@ export default function SubjectManagement() {
   const [editComponents, setEditComponents] = useState<GradingComponent[]>([])
   const [editSaving, setEditSaving] = useState(false)
 
+  const [page, setPage] = useState(0)
+  const [cursors, setCursors] = useState<any[]>([null])
+  const [hasMore, setHasMore] = useState(true)
+
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'subjects'), snap => {
-      setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject & { id: string })))
+    getDocs(query(collection(db, 'terms'), orderBy('label')))
+      .then(snap => setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm & { id: string }))))
+  }, [])
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', '==', 'teacher'), orderBy('name'))
+    getDocs(q).then(snap => {
+      setTeachers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string })))
+    })
+  }, [])
+
+  useEffect(() => {
+    loadPage(0)
+  }, [])
+
+  function loadPage(idx: number) {
+    setLoading(true)
+    const cursor = cursors[idx]
+    let q = query(collection(db, 'subjects'), orderBy('code'), limit(PAGE_SIZE))
+    if (cursor) q = query(q, startAfter(cursor))
+    getDocs(q).then(snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject & { id: string }))
+      setSubjects(list)
+      setHasMore(snap.docs.length === PAGE_SIZE)
+      if (cursors.length <= idx + 1 && snap.docs.length === PAGE_SIZE) {
+        setCursors(prev => [...prev, snap.docs[snap.docs.length - 1]])
+      }
+      setPage(idx)
       setLoading(false)
     })
-    return unsub
-  }, [])
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), snap => {
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string }))
-      setTeachers(all.filter(u => u.role === 'teacher'))
-    })
-    return unsub
-  }, [])
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'terms'), snap => {
-      setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm & { id: string })))
-    })
-    return unsub
-  }, [])
+  }
 
   function addComponent() {
     setComponents(prev => [...prev, { id: crypto.randomUUID(), name: '', weight: 0 }])
@@ -88,6 +104,7 @@ export default function SubjectManagement() {
       } satisfies Omit<Subject, 'id'>)
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'subjects', '', 'Created subject: ' + form.code)
       resetForm(); setShowForm(false)
+      loadPage(page)
       showToast('Subject created', 'success')
     } catch (err: any) { setError(err.message); showToast(err.message, 'error') }
     finally { setSaving(false) }
@@ -112,6 +129,7 @@ export default function SubjectManagement() {
       })
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'update', 'subjects', editTarget.id, 'Updated subject: ' + editForm.code)
       setEditTarget(null)
+      loadPage(page)
       showToast('Subject updated', 'success')
     } catch { showToast('Failed to update subject', 'error') }
     finally { setEditSaving(false) }
@@ -122,6 +140,7 @@ export default function SubjectManagement() {
     try {
       await deleteDoc(doc(db, 'subjects', deleteTarget.id))
       await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'delete', 'subjects', deleteTarget.id, 'Deleted subject: ' + deleteTarget.title)
+      loadPage(page)
       showToast('Subject deleted', 'success')
     } catch { showToast('Failed to delete subject', 'error') }
     setDeleteTarget(null)
@@ -289,6 +308,18 @@ export default function SubjectManagement() {
         {filtered.length === 0 && (
           <p className="text-center text-muted-foreground text-sm py-10">No subjects found.</p>
         )}
+      </div>
+
+      <div className="flex items-center justify-center gap-3 mt-4">
+        <button onClick={() => loadPage(page - 1)} disabled={page === 0}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors">
+          <ChevronLeft size={14} /> Previous
+        </button>
+        <span className="text-xs text-muted-foreground">Page {page + 1}</span>
+        <button onClick={() => loadPage(page + 1)} disabled={!hasMore}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors">
+          Next <ChevronRight size={14} />
+        </button>
       </div>
 
       <ConfirmDialog

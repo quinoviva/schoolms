@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc, writeBatch } from 'firebase/firestore'
-import { db, type Class, type Subject, type AppUser } from '@pbclc/shared'
-import { Search, X } from 'lucide-react'
+import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc, writeBatch, orderBy, limit, startAfter } from 'firebase/firestore'
+import { db, fetchSubjectsByIds, fetchUsersByIds, type Class, type Subject, type AppUser } from '@pbclc/shared'
+import { Search, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
@@ -12,53 +12,79 @@ export default function Enrollments() {
   const [enrollments, setEnrollments] = useState<{ id?: string; studentId: string; classId: string }[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [subjectsLoaded, setSubjectsLoaded] = useState(false)
-  const [classesLoaded, setClassesLoaded] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState('')
   const [selectedClass, setSelectedClass] = useState('')
   const [search, setSearch] = useState('')
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; classId: string; label: string } | null>(null)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 50
+  const [pageCursors, setPageCursors] = useState<(any | null)[]>([null])
+  const [hasMore, setHasMore] = useState(true)
+  const [studentSearch, setStudentSearch] = useState('')
+  const [filteredStudents, setFilteredStudents] = useState<{ id: string; name: string; section: string }[]>([])
 
   useEffect(() => {
-    const unsubStudents = onSnapshot(query(collection(db, 'users'), where('role', '==', 'student')), snap => {
-      setStudents(snap.docs.map(d => {
-        const u = d.data() as AppUser
-        return { id: d.id, name: u.name, section: u.section || '' }
-      }))
-    })
-
     const unsubSubjects = onSnapshot(collection(db, 'subjects'), snap => {
       setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)))
       setSubjectsLoaded(true)
     })
-
-    const unsubEnrollments = onSnapshot(collection(db, 'enrollments'), snap => {
-      setEnrollments(snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; studentId: string; classId: string })))
-    })
-
-    return () => { unsubStudents(); unsubSubjects(); unsubEnrollments() }
+    return () => unsubSubjects()
   }, [])
 
   useEffect(() => {
     const unsubClasses = onSnapshot(collection(db, 'classes'), snap => {
+      const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
       const clsData: (Class & { subject: Subject })[] = []
-      snap.docs.forEach(d => {
-        const cls = { id: d.id, ...d.data() } as Class
+      classData.forEach(cls => {
         const subj = subjects.find(s => s.id === cls.subjectId)
-        if (subj) {
-          clsData.push({ ...cls, subject: subj })
-        }
+        if (subj) clsData.push({ ...cls, subject: subj })
       })
       setClasses(clsData)
-      setClassesLoaded(true)
     })
     return unsubClasses
   }, [subjects])
 
-  const loading = !subjectsLoaded || !classesLoaded
+  useEffect(() => {
+    async function loadStudents() {
+      const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student'), orderBy('name'), limit(500)))
+      setStudents(snap.docs.map(d => {
+        const u = d.data() as AppUser
+        return { id: d.id, name: u.name, section: u.section || '' }
+      }))
+    }
+    loadStudents()
+  }, [])
+
+  useEffect(() => {
+    if (!studentSearch) { setFilteredStudents(students); return }
+    const q = studentSearch.toLowerCase()
+    setFilteredStudents(students.filter(s => s.name.toLowerCase().includes(q)))
+  }, [studentSearch, students])
+
+  useEffect(() => {
+    async function loadEnrollments() {
+      setSubjectsLoaded(false)
+      const cursor = pageCursors[page - 1] || null
+      let q = query(collection(db, 'enrollments'), orderBy('studentId'), limit(PAGE_SIZE))
+      if (cursor) q = query(collection(db, 'enrollments'), orderBy('studentId'), startAfter(cursor), limit(PAGE_SIZE))
+      const snap = await getDocs(q)
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; studentId: string; classId: string }))
+      setEnrollments(data)
+      setHasMore(snap.docs.length === PAGE_SIZE)
+      const lastDoc = snap.docs[snap.docs.length - 1]
+      const newCursors = [...pageCursors]
+      newCursors[page] = lastDoc || null
+      setPageCursors(newCursors)
+      setSubjectsLoaded(true)
+    }
+    loadEnrollments()
+  }, [page])
+
+  const loading = !subjectsLoaded
 
   const classNameMap = useMemo(() => {
     const map: Record<string, string> = {}
-    classes.forEach(c => { map[c.id] = `${c.subject.code} â€” ${c.section}` })
+    classes.forEach(c => { map[c.id] = `${c.subject.code} — ${c.section}` })
     return map
   }, [classes])
 
@@ -134,18 +160,26 @@ export default function Enrollments() {
         <div className="flex gap-4 items-end flex-wrap">
           <div>
             <label className="block text-xs font-semibold text-foreground mb-1">Student</label>
-            <select value={selectedStudent} onChange={e => setSelectedStudent(e.target.value)}
-              className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 min-w-[200px]">
-              <option value="">Select student...</option>
-              {students.map(s => <option key={s.id} value={s.id}>{s.name} ({s.section || 'No section'})</option>)}
-            </select>
+            <input type="text" placeholder="Search student..." value={studentSearch}
+              onChange={e => { setStudentSearch(e.target.value); setSelectedStudent('') }}
+              className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 min-w-[200px]" />
+            {studentSearch && filteredStudents.length > 0 && (
+              <div className="absolute z-50 mt-1 bg-white border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto min-w-[250px]">
+                {filteredStudents.slice(0, 50).map(s => (
+                  <button key={s.id} type="button" onClick={() => { setSelectedStudent(s.id); setStudentSearch(s.name) }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-secondary/50 transition-colors ${selectedStudent === s.id ? 'bg-[#1e3a5f]/10 font-semibold' : ''}`}>
+                    {s.name} <span className="text-muted-foreground">({s.section || 'No section'})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold text-foreground mb-1">Class</label>
             <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)}
               className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 min-w-[200px]">
               <option value="">Select class...</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} â€” {c.section}</option>)}
+              {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>)}
             </select>
           </div>
           <button onClick={handleEnroll} disabled={!selectedStudent || !selectedClass}
@@ -158,7 +192,7 @@ export default function Enrollments() {
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-secondary/20">
           <Search size={14} className="text-muted-foreground shrink-0" />
-          <input type="text" placeholder="Search by student or classâ€¦" value={search}
+          <input type="text" placeholder="Search by student or class..." value={search}
             onChange={e => setSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
           {search && (
@@ -179,7 +213,7 @@ export default function Enrollments() {
             {filteredEnrollments.map((e, i) => {
               const student = students.find(s => s.id === e.studentId)
               const cls = classes.find(c => c.id === e.classId)
-              const label = `${student?.name || 'Unknown'} in ${cls ? `${cls.subject.code} â€” ${cls.section}` : 'Unknown'}`
+              const label = `${student?.name || 'Unknown'} in ${cls ? `${cls.subject.code} — ${cls.section}` : 'Unknown'}`
               return (
                 <tr key={`${e.studentId}-${e.classId}-${i}`} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                   <td className="px-5 py-3.5">
@@ -187,7 +221,7 @@ export default function Enrollments() {
                     <p className="text-xs text-muted-foreground">{student?.section || ''}</p>
                   </td>
                   <td className="px-4 py-3.5 text-muted-foreground">
-                    {cls ? `${cls.subject.code} â€” ${cls.section}` : 'Unknown'}
+                    {cls ? `${cls.subject.code} — ${cls.section}` : 'Unknown'}
                   </td>
                   <td className="px-4 py-3.5 text-center">
                     <button onClick={() => setRemoveTarget({ studentId: e.studentId, classId: e.classId, label })}
@@ -200,9 +234,20 @@ export default function Enrollments() {
             })}
           </tbody>
         </table>
-        {enrollments.length === 0 && (
-          <div className="px-5 py-8 text-center text-muted-foreground text-sm">No enrollments yet.</div>
-        )}
+        <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
+          <span>{filteredEnrollments.length} enrollments (page {page})</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="font-medium">{page}</span>
+            <button onClick={() => setPage(p => p + 1)} disabled={!hasMore}
+              className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
       </div>
 
       <ConfirmDialog

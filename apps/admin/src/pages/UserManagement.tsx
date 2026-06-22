@@ -1,6 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react'
-import { useCallback } from 'react'
-import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
 import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
 import { db, auth, functions, type AppUser, type Role } from '@pbclc/shared'
@@ -31,6 +30,8 @@ export default function UserManagement() {
   const [editSaving, setEditSaving] = useState(false)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
+  const [pageCursors, setPageCursors] = useState<(string | null)[]>([null])
+  const [totalEstimate, setTotalEstimate] = useState(0)
 
   const [importing, setImporting] = useState(false)
   const [showBulkForm, setShowBulkForm] = useState(false)
@@ -39,13 +40,22 @@ export default function UserManagement() {
   const [bulkRunning, setBulkRunning] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), snap => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string })))
-      setLoading(false)
-    })
-    return unsub
-  }, [])
+  async function loadPage(pageNum: number) {
+    setLoading(true)
+    const cursor = pageCursors[pageNum - 1] || null
+    let q = query(collection(db, 'users'), orderBy('name'), limit(PAGE_SIZE))
+    if (cursor) q = query(collection(db, 'users'), orderBy('name'), startAfter(cursor), limit(PAGE_SIZE))
+    const snap = await getDocs(q)
+    const results = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string }))
+    setUsers(results)
+    const lastDoc = snap.docs[snap.docs.length - 1]
+    const newCursors = [...pageCursors]
+    newCursors[pageNum] = lastDoc ? lastDoc.data().name : null
+    setPageCursors(newCursors)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadPage(1) }, [])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -117,17 +127,23 @@ export default function UserManagement() {
   }
 
   const filtered = users.filter(u =>
+    !search ||
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.role.toLowerCase().includes(search.toLowerCase())
   )
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = pageCursors[page] !== null ? page + 1 : page
   const safePage = Math.min(page, totalPages)
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   function handleSearch(v: string) {
     setSearch(v)
     setPage(1)
+    loadPage(1)
+  }
+
+  function goToPage(p: number) {
+    setPage(p)
+    loadPage(p)
   }
 
   function handleExportCSV() {
@@ -202,11 +218,10 @@ export default function UserManagement() {
     setBulkRunning(true)
     setBulkResults([])
     const results: typeof bulkResults = []
-    for (let i = 0; i < lines.length; i++) {
-      const parts = lines[i].split(',').map(p => p.trim())
+
+    async function createOne(parts: string[], lineNum: number) {
       if (parts.length < 4) {
-        results.push({ line: i + 1, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: ID,Last,First,Section,Birthday' })
-        continue
+        return { line: lineNum, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: ID,Last,First,Section,Birthday' }
       }
       const [idNum, lastName, firstName, section, birthdate] = parts
       const email = `${idNum}@x`
@@ -218,12 +233,25 @@ export default function UserManagement() {
           id: cred.user.uid, email, name, role: 'student', section, createdAt: Date.now(),
         } satisfies AppUser)
         await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Bulk created: ' + name)
-        results.push({ line: i + 1, id: idNum, name, success: true })
+        return { line: lineNum, id: idNum, name, success: true }
       } catch (err: any) {
-        results.push({ line: i + 1, id: idNum, name, success: false, error: err.message })
+        return { line: lineNum, id: idNum, name, success: false, error: err.message }
       }
     }
-    setBulkResults(results)
+
+    const concurrency = 5
+    for (let i = 0; i < lines.length; i += concurrency) {
+      const batch = lines.slice(i, i + concurrency)
+      const batchResults = await Promise.all(
+        batch.map((line, idx) => createOne(line.split(',').map(p => p.trim()), i + idx + 1))
+      )
+      results.push(...batchResults)
+      setBulkResults([...results])
+      if (i + concurrency < lines.length) {
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
     setBulkRunning(false)
     const ok = results.filter(r => r.success).length
     showToast(`Created ${ok}/${lines.length} students`, ok === lines.length ? 'success' : 'error')
@@ -362,9 +390,10 @@ export default function UserManagement() {
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-secondary/20">
           <Search size={14} className="text-muted-foreground shrink-0" />
-          <input type="text" placeholder="Search by name, email, or roleâ€¦" value={search}
+          <input type="text" placeholder="Search current page by name, email, or role..." value={search}
             onChange={e => handleSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
+          <button onClick={() => loadPage(safePage)} className="text-xs text-[#1e3a5f] font-semibold hover:underline shrink-0">Refresh</button>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -376,7 +405,7 @@ export default function UserManagement() {
             </tr>
           </thead>
           <tbody>
-            {paginated.map(u => (
+            {filtered.map(u => (
               <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                 <td className="px-5 py-3.5">
                   <p className="font-semibold text-foreground">{u.name}</p>
@@ -405,14 +434,14 @@ export default function UserManagement() {
           </tbody>
         </table>
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
-          <span>Showing {paginated.length} of {filtered.length} users</span>
+          <span>Showing {filtered.length} of ~{totalEstimate} users</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
+            <button onClick={() => goToPage(safePage - 1)} disabled={safePage <= 1}
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronLeft size={14} />
             </button>
-            <span className="font-medium">{safePage} / {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
+            <span className="font-medium">{safePage}</span>
+            <button onClick={() => goToPage(safePage + 1)} disabled={filtered.length < PAGE_SIZE}
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronRight size={14} />
             </button>
