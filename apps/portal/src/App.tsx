@@ -1,32 +1,37 @@
-﻿import { useState } from 'react'
+﻿import { useState, lazy, Suspense } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import LoginPage from './pages/LoginPage'
 import PortalLayout from './layouts/PortalLayout'
-import StudentDashboard from './pages/student/StudentDashboard'
-import MyGrades from './pages/student/MyGrades'
-import Transcript from './pages/student/Transcript'
-import TeacherClasses from './pages/teacher/TeacherClasses'
-import TeacherDashboard from './pages/teacher/TeacherDashboard'
-import Attendance from './pages/teacher/Attendance'
-import GradeEntry from './pages/teacher/GradeEntry'
-import SeatPlan from './pages/teacher/SeatPlan'
-import ReportCards from './pages/teacher/ReportCards'
-import ClassSheets from './pages/teacher/ClassSheets'
-import LearningMaterials from './pages/teacher/LearningMaterials'
-import StudentMaterials from './pages/student/StudentMaterials'
-import Schedule from './pages/Schedule'
-import Announcements from './pages/Announcements'
-import Assignments from './pages/Assignments'
-import Profile from './pages/Profile'
 import ToastContainer from './components/ui/ToastContainer'
 import ErrorBoundary from './components/ErrorBoundary'
+
+const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'))
+const MyGrades = lazy(() => import('./pages/student/MyGrades'))
+const Transcript = lazy(() => import('./pages/student/Transcript'))
+const TeacherClasses = lazy(() => import('./pages/teacher/TeacherClasses'))
+const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard'))
+const Attendance = lazy(() => import('./pages/teacher/Attendance'))
+const GradeEntry = lazy(() => import('./pages/teacher/GradeEntry'))
+const SeatPlan = lazy(() => import('./pages/teacher/SeatPlan'))
+const ReportCards = lazy(() => import('./pages/teacher/ReportCards'))
+const ClassSheets = lazy(() => import('./pages/teacher/ClassSheets'))
+const LearningMaterials = lazy(() => import('./pages/teacher/LearningMaterials'))
+const StudentMaterials = lazy(() => import('./pages/student/StudentMaterials'))
+const Schedule = lazy(() => import('./pages/Schedule'))
+const Announcements = lazy(() => import('./pages/Announcements'))
+const Assignments = lazy(() => import('./pages/Assignments'))
+const Profile = lazy(() => import('./pages/Profile'))
+
+function Loading() {
+  return <div className="h-screen flex items-center justify-center text-muted-foreground">Loading...</div>
+}
 
 function AppRoutes() {
   const { appUser, loading } = useAuth()
   const [page, setPage] = useState('dashboard')
 
-  if (loading) return <div className="h-screen flex items-center justify-center text-muted-foreground">Loading...</div>
+  if (loading) return <Loading />
   if (!appUser) return <LoginPage />
 
   const user = appUser
@@ -65,7 +70,9 @@ function AppRoutes() {
 
   return (
     <PortalLayout path={page} onNav={setPage}>
-      <ErrorBoundary>{renderPage()}</ErrorBoundary>
+      <ErrorBoundary>
+        <Suspense fallback={<Loading />}>{renderPage()}</Suspense>
+      </ErrorBoundary>
     </PortalLayout>
   )
 }
