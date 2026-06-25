@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import SchoolsList from './pages/SchoolsList'
 import CreateSchool from './pages/CreateSchool'
 import SchoolDetail from './pages/SchoolDetail'
+import GlobalSearch from './pages/GlobalSearch'
 
 function Loading() {
   return <div className="h-screen flex items-center justify-center text-muted-foreground">Loading...</div>
@@ -30,6 +31,8 @@ function SuperAdminRoutes() {
         return selectedSchoolId ? <SchoolDetail schoolId={selectedSchoolId} onBack={() => setPage('/schools')} /> : <SchoolsList onSelect={() => {}} />
       case '/create-school':
         return <CreateSchool onCreated={() => setPage('/schools')} />
+      case '/global-search':
+        return <GlobalSearch />
       default:
         return <Dashboard />
     }

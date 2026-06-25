@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser, type GradeRelease } from '@academix/shared'
+import {
+  listEnrollments, listGrades, listGradeReleases,
+  getClass, listSubjects, listTerms,
+  type GradeScore, type Subject, type Class, type AcademicTerm, type AppUser, type GradeRelease
+} from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface TermRecord {
   term: AcademicTerm
@@ -11,104 +15,75 @@ interface TermRecord {
 }
 
 export default function Transcript({ user }: { user: AppUser }) {
+  useAuth()
   const schoolId = user.schoolId || ''
-  const [classIds, setClassIds] = useState<string[]>([])
-  const [allScores, setAllScores] = useState<GradeScore[]>([])
-  const [releasedSet, setReleasedSet] = useState<Set<string>>(new Set())
   const [records, setRecords] = useState<TermRecord[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setClassIds(snap.docs.map(d => d.data().classId))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
+    let cancelled = false
+    async function load() {
+      try {
+        const [terms, enrollments, scores, releases] = await Promise.all([
+          listTerms(schoolId),
+          listEnrollments({ studentId: user.id }),
+          listGrades({ studentId: user.id }),
+          listGradeReleases(),
+        ])
+        if (cancelled) return
+        const classIds = enrollments.map(e => e.classId)
+        const releasedSet = new Set(
+          releases.filter(r => r.isReleased && classIds.includes(r.classId)).map(r => r.classId)
+        )
 
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
+        if (!classIds.length) {
+          setRecords([])
+          setLoading(false)
+          return
+        }
 
-  useEffect(() => {
-    if (!classIds.length) { setReleasedSet(new Set()); return }
-    const unsub = onSnapshot(
-      query(collection(db, 'gradeReleases'), where('classId', 'in', classIds)),
-      (snap) => {
-        const s = new Set<string>()
-        snap.docs.forEach(d => {
-          const r = d.data() as GradeRelease
-          if (r.isReleased) s.add(r.classId)
-        })
-        setReleasedSet(s)
-      }
-    )
-    return unsub
-  }, [classIds])
-
-  useEffect(() => {
-    async function compute() {
-      if (!classIds.length) {
-        setRecords([])
-        setLoading(false)
-        return
-      }
-
-      const termsSnap = await getDocs(query(collection(db, 'terms'), where('schoolId', '==', schoolId)))
-      const terms = termsSnap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
-
-      const batchSize = 10
-      const temp: { cls: Class; subject: Subject; grade: number }[] = []
-      const released = classIds.filter(cid => releasedSet.has(cid))
-
-      for (let i = 0; i < released.length; i += batchSize) {
-        const batch = released.slice(i, i + batchSize)
-        const classPromises = batch.map(cid => getDoc(doc(db, 'classes', cid)))
-        const classSnaps = await Promise.all(classPromises)
-        const classes = classSnaps.filter(s => s.exists()).map(s => ({ id: s.id, ...s.data() } as Class))
-
+        const released = classIds.filter(cid => releasedSet.has(cid))
+        const classes = (await Promise.all(released.map(cid => getClass(cid)))).filter(Boolean) as Class[]
+        if (cancelled) return
         const subjIds = [...new Set(classes.map(c => c.subjectId))]
-        const subjPromises = subjIds.map(sid => getDoc(doc(db, 'subjects', sid)))
-        const subjSnaps = await Promise.all(subjPromises)
-        const subjMap = new Map(subjSnaps.filter(s => s.exists()).map(s => [s.id, { id: s.id, ...s.data() } as Subject]))
+        const allSubjects = await listSubjects({ schoolId })
+        if (cancelled) return
+        const subjMap = new Map(allSubjects.map(s => [s.id, s]))
 
+        const temp: { cls: Class; subject: Subject; grade: number }[] = []
         for (const cls of classes) {
           const subject = subjMap.get(cls.subjectId)
           if (!subject) continue
-          const scores = allScores.filter(s => s.classId === cls.id)
+          const clsScores = scores.filter(s => s.classId === cls.id)
           let final = 0
           for (const comp of subject.gradingComponents) {
-            const compScores = scores.filter(s => s.componentId === comp.id)
+            const compScores = clsScores.filter(s => s.componentId === comp.id)
             const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
             final += avg * (comp.weight / 100)
           }
           temp.push({ cls, subject, grade: Math.round(final) })
         }
-      }
 
-      const recordsByTerm = new Map<string, TermRecord>()
-      for (const term of terms) {
-        const termClasses = temp
-          .filter(r => r.cls.termId === term.id)
-          .map(r => ({ subject: r.subject, grade: r.grade }))
-        if (termClasses.length) {
-          const gwa = Math.round(termClasses.reduce((a, s) => a + s.grade, 0) / termClasses.length * 100) / 100
-          recordsByTerm.set(term.id, { term, subjects: termClasses, gwa })
+        const recordsByTerm = new Map<string, TermRecord>()
+        for (const term of terms) {
+          const termClasses = temp
+            .filter(r => r.cls.termId === term.id)
+            .map(r => ({ subject: r.subject, grade: r.grade }))
+          if (termClasses.length) {
+            const gwa = Math.round(termClasses.reduce((a, s) => a + s.grade, 0) / termClasses.length * 100) / 100
+            recordsByTerm.set(term.id, { term, subjects: termClasses, gwa })
+          }
         }
+        setRecords([...recordsByTerm.values()])
+        setLoading(false)
+      } catch (err) {
+        console.error(err)
+        setLoading(false)
       }
-      setRecords([...recordsByTerm.values()])
-      setLoading(false)
     }
-    compute()
-  }, [classIds, allScores, releasedSet])
+    load()
+    return () => { cancelled = true }
+  }, [user.id, schoolId])
 
   function handlePrint() {
     window.print()

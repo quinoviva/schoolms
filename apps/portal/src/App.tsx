@@ -16,6 +16,7 @@ const GradeEntry = lazy(() => import('./pages/teacher/GradeEntry'))
 const SeatPlan = lazy(() => import('./pages/teacher/SeatPlan'))
 const ReportCards = lazy(() => import('./pages/teacher/ReportCards'))
 const ClassSheets = lazy(() => import('./pages/teacher/ClassSheets'))
+const SchoolForms = lazy(() => import('./pages/teacher/SchoolForms'))
 const LearningMaterials = lazy(() => import('./pages/teacher/LearningMaterials'))
 const StudentMaterials = lazy(() => import('./pages/student/StudentMaterials'))
 const Schedule = lazy(() => import('./pages/Schedule'))
@@ -50,6 +51,8 @@ function AppRoutes() {
         return <ReportCards user={user} />
       case 'classsheets':
         return <ClassSheets user={user} />
+      case 'forms':
+        return <SchoolForms user={user} />
       case 'materials':
         return user.role === 'teacher' ? <LearningMaterials user={user} /> : <StudentMaterials user={user} />
       case 'schedule':

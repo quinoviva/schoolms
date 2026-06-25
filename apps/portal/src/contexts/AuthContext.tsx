@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from '@academix/shared'
-import type { AppUser } from '@academix/shared'
+import { auth, setTokenProvider, getUser, type AppUser } from '@academix/shared'
 
 interface AuthContextValue {
   firebaseUser: User | null
@@ -21,12 +19,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    setTokenProvider(async () => {
+      const token = await auth.currentUser?.getIdToken()
+      return token || null
+    })
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user)
       if (user) {
-        const snap = await getDoc(doc(db, 'users', user.uid))
-        if (snap.exists()) {
-          setAppUser(snap.data() as AppUser)
+        try {
+          const data = await getUser(user.uid)
+          setAppUser(data)
+        } catch {
+          setAppUser(null)
         }
       } else {
         setAppUser(null)
@@ -42,14 +47,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     await signOut(auth)
+    setAppUser(null)
   }
 
   async function refreshUser() {
     const user = auth.currentUser
     if (user) {
-      const snap = await getDoc(doc(db, 'users', user.uid))
-      if (snap.exists()) {
-        setAppUser(snap.data() as AppUser)
+      try {
+        const data = await getUser(user.uid)
+        setAppUser(data)
+      } catch {
+        setAppUser(null)
       }
     }
   }

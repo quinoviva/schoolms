@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { collection, query, where, onSnapshot, getDocs, writeBatch, doc, setDoc } from 'firebase/firestore'
-import { db, fetchUsersByIds, mergeClassesWithSubjects, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent, type GradeRelease } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, getUser, listGrades, batchSaveGrades, listGradeReleases, saveGradeRelease, createAuditLog, transmute, getGradeDescriptor, type AppUser, type Class, type Subject, type GradeScore, type GradingComponent } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import { createNotification } from '../../utils/notifications'
@@ -11,7 +10,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
   const [selectedClassId, setSelectedClassId] = useState('')
   const [students, setStudents] = useState<{ id: string; name: string }[]>([])
   const [components, setComponents] = useState<GradingComponent[]>([])
-  const [scores, setScores] = useState<Record<string, Record<string, string>>>({})
+  const [scores, setScores] = useState<Record<string, Record<string, { score: string; maxScore: string }>>>({})
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const studentsRef = useRef<{ id: string; name: string }[]>([])
@@ -22,16 +21,23 @@ export default function GradeEntry({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-        setLoading(false)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   useEffect(() => {
@@ -40,92 +46,101 @@ export default function GradeEntry({ user }: { user: AppUser }) {
     if (!cls) return
     setComponents(cls.subject.gradingComponents)
 
-    const unsubEnroll = onSnapshot(
-      query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)),
-      async (snap) => {
-        const studentIds = snap.docs.map(d => d.data().studentId)
-        const userMap = await fetchUsersByIds(studentIds)
-        const stuList = studentIds
-          .map(id => {
-            const user = userMap.get(id)
-            return user ? { id, name: user.name } : null
-          })
-          .filter(Boolean) as { id: string; name: string }[]
-        setStudents(stuList)
-        studentsRef.current = stuList
-      }
-    )
-
-    return unsubEnroll
+    let cancelled = false
+    async function load() {
+      const enrollData = await listEnrollments({ classId: selectedClassId })
+      const studentIds = enrollData.map(e => e.studentId)
+      const users = (await Promise.all(studentIds.map(id => getUser(id)))).filter(Boolean) as AppUser[]
+      const stuList = studentIds
+        .map(id => {
+          const u = users.find(uu => uu.id === id)
+          return u ? { id: u.id, name: u.name } : null
+        })
+        .filter(Boolean) as { id: string; name: string }[]
+      if (cancelled) return
+      setStudents(stuList)
+      studentsRef.current = stuList
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId, classes])
 
   useEffect(() => {
     if (!selectedClassId) return
-    const unsubGrades = onSnapshot(
-      query(collection(db, 'grades'), where('classId', '==', selectedClassId)),
-      (snap) => {
-        const existingScores = snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))
-        const initScores: Record<string, Record<string, string>> = {}
-        for (const s of studentsRef.current) {
-          initScores[s.id] = {}
-          for (const comp of components) {
-            const match = existingScores.find(es => es.studentId === s.id && es.componentId === comp.id)
-            initScores[s.id][comp.id] = match ? String(match.score) : ''
-          }
+    let cancelled = false
+    async function load() {
+      const existingScores = await listGrades({ classId: selectedClassId })
+      const initScores: Record<string, Record<string, { score: string; maxScore: string }>> = {}
+      for (const s of studentsRef.current) {
+        initScores[s.id] = {}
+        for (const comp of components) {
+          const match = existingScores.find(es => es.studentId === s.id && es.componentId === comp.id)
+          initScores[s.id][comp.id] = match
+            ? { score: String(match.score), maxScore: String(match.maxScore) }
+            : { score: '', maxScore: '' }
         }
-        setScores(initScores)
       }
-    )
-    return unsubGrades
+      if (!cancelled) setScores(initScores)
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId, components])
 
   useEffect(() => {
     if (!selectedClassId) return
-    const unsub = onSnapshot(
-      query(collection(db, 'gradeReleases'), where('classId', '==', selectedClassId)),
-      (snap) => {
-        if (!snap.empty) {
-          const data = snap.docs[0].data() as GradeRelease
-          setIsReleased(data.isReleased)
-          gradeReleaseDocId.current = snap.docs[0].id
-        } else {
-          setIsReleased(false)
-          gradeReleaseDocId.current = null
-        }
+    let cancelled = false
+    async function load() {
+      const releases = await listGradeReleases({ classId: selectedClassId })
+      if (releases.length > 0) {
+        const data = releases[0]
+        setIsReleased(data.isReleased)
+        gradeReleaseDocId.current = data.id
+      } else {
+        setIsReleased(false)
+        gradeReleaseDocId.current = null
       }
-    )
-    return unsub
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   const autoSave = useCallback(async () => {
     if (!selectedClassId || !dirty) return
     setSaving(true)
     try {
-      const existingSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
-      const existingGrades = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))
-      const batch = writeBatch(db)
+      const existingGrades = await listGrades({ classId: selectedClassId })
       const newSet = new Set<string>()
+      const toSave: GradeScore[] = []
 
       for (const student of students) {
         for (const comp of components) {
-          const raw = parseFloat(scores[student.id]?.[comp.id] || '0')
-          const val = sanitizeNumber(raw, 0, 100)
-          if (isNaN(val) || val < 0) continue
+          const cell = scores[student.id]?.[comp.id]
+          const scoreVal = parseFloat(cell?.score || '0')
+          const maxVal = parseFloat(cell?.maxScore || '0')
+          if (isNaN(scoreVal) || isNaN(maxVal) || maxVal <= 0) continue
           const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
           if (found) {
-            if (found.score !== val) {
-              batch.update(doc(db, 'grades', found.id), { score: val })
-            }
+            toSave.push({ ...found, score: scoreVal >= 0 ? scoreVal : 0, maxScore: maxVal })
             newSet.add(found.id)
           } else {
-            const ref = doc(collection(db, 'grades'))
-            batch.set(ref, { studentId: student.id, classId: selectedClassId, componentId: comp.id, score: val, maxScore: 100, schoolId } satisfies Omit<GradeScore, 'id'>)
-            newSet.add(ref.id)
+            toSave.push({
+              id: crypto.randomUUID(),
+              studentId: student.id,
+              classId: selectedClassId,
+              componentId: comp.id,
+              score: scoreVal >= 0 ? scoreVal : 0,
+              maxScore: maxVal,
+              schoolId,
+            })
+            newSet.add(toSave[toSave.length - 1].id)
           }
         }
       }
-      existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => batch.delete(doc(db, 'grades', eg.id)))
-      await batch.commit()
+      existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => {
+        toSave.push({ ...eg, score: 0, maxScore: 100 })
+      })
+
+      await batchSaveGrades(toSave)
       await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(console.error)
       setDirty(false)
     } catch (err) { console.error('Auto-save failed:', err); showToast('Auto-save failed. Changes will be retried.', 'error') } finally { setSaving(false) }
@@ -138,87 +153,86 @@ export default function GradeEntry({ user }: { user: AppUser }) {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
   }, [dirty, autoSave])
 
-  function updateScore(studentId: string, componentId: string, value: string) {
-    setScores(prev => ({
-      ...prev,
-      [studentId]: { ...prev[studentId], [componentId]: value },
-    }))
+  function updateScore(studentId: string, componentId: string, field: 'score' | 'maxScore', value: string) {
+    setScores(prev => {
+      const prevCell = prev[studentId]?.[componentId] || { score: '', maxScore: '' }
+      return {
+        ...prev,
+        [studentId]: {
+          ...prev[studentId],
+          [componentId]: { ...prevCell, [field]: value },
+        },
+      }
+    })
     setDirty(true)
   }
 
-  function calcFinal(studentId: string): number {
+  function calcFinal(studentId: string): { initial: number; transmuted: number; descriptor: string } {
     let total = 0
     for (const comp of components) {
-      const val = parseFloat(scores[studentId]?.[comp.id] || '0')
-      total += val * (comp.weight / 100)
+      const cell = scores[studentId]?.[comp.id]
+      const scoreVal = parseFloat(cell?.score || '0')
+      const maxVal = parseFloat(cell?.maxScore || '0')
+      if (isNaN(scoreVal) || isNaN(maxVal) || maxVal <= 0) continue
+      total += (scoreVal / maxVal) * 100 * (comp.weight / 100)
     }
-    return Math.round(total)
+    const initial = Math.round(total)
+    const t = transmute(initial)
+    return { initial, transmuted: t, descriptor: getGradeDescriptor(t) }
   }
 
   async function handleSaveAll() {
     if (!selectedClassId) return
     setSaving(true)
     try {
-      const existingSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
-      const existingGrades = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))
-      const batch = writeBatch(db)
+      const existingGrades = await listGrades({ classId: selectedClassId })
       const newSet = new Set<string>()
+      const toSave: GradeScore[] = []
 
       for (const student of students) {
         for (const comp of components) {
-          const raw = parseFloat(scores[student.id]?.[comp.id] || '0')
-          const val = sanitizeNumber(raw, 0, 100)
-          if (isNaN(val) || val < 0) continue
+          const cell = scores[student.id]?.[comp.id]
+          const scoreVal = parseFloat(cell?.score || '0')
+          const maxVal = parseFloat(cell?.maxScore || '0')
+          if (isNaN(scoreVal) || isNaN(maxVal) || maxVal <= 0) continue
           const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
           if (found) {
-            if (found.score !== val) {
-              batch.update(doc(db, 'grades', found.id), { score: val })
-            }
+            toSave.push({ ...found, score: scoreVal >= 0 ? scoreVal : 0, maxScore: maxVal })
             newSet.add(found.id)
           } else {
-            const ref = doc(collection(db, 'grades'))
-            batch.set(ref, {
+            toSave.push({
+              id: crypto.randomUUID(),
               studentId: student.id,
               classId: selectedClassId,
               componentId: comp.id,
-              score: val,
-              maxScore: 100,
+              score: scoreVal >= 0 ? scoreVal : 0,
+              maxScore: maxVal,
               schoolId,
-            } satisfies Omit<GradeScore, 'id'>)
-            newSet.add(ref.id)
+            })
+            newSet.add(toSave[toSave.length - 1].id)
           }
         }
       }
-
       existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => {
-        batch.delete(doc(db, 'grades', eg.id))
+        toSave.push({ ...eg, score: 0, maxScore: 100 })
       })
 
-      await batch.commit()
+      await batchSaveGrades(toSave)
       await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, `Saved grades for ${students.length} students`)
 
+      await saveGradeRelease({
+        id: gradeReleaseDocId.current || crypto.randomUUID(),
+        classId: selectedClassId,
+        teacherId: user.id,
+        releasedAt: Date.now(),
+        isReleased,
+        schoolId,
+      })
+
       if (isReleased) {
-        const ref = gradeReleaseDocId.current
-          ? doc(db, 'gradeReleases', gradeReleaseDocId.current)
-          : doc(collection(db, 'gradeReleases'))
-        await setDoc(ref, {
-          classId: selectedClassId,
-          teacherId: user.id,
-          releasedAt: Date.now(),
-          isReleased: true,
-          schoolId,
-        } satisfies Omit<GradeRelease, 'id'>)
         for (const student of students) {
           await createNotification(student.id, 'grade_released', 'Your grades have been released.', selectedClassId, schoolId)
         }
-      } else if (gradeReleaseDocId.current) {
-        await setDoc(doc(db, 'gradeReleases', gradeReleaseDocId.current), {
-          classId: selectedClassId,
-          teacherId: user.id,
-          releasedAt: Date.now(),
-          isReleased: false,
-          schoolId,
-        } satisfies Omit<GradeRelease, 'id'>)
       }
 
       showToast('Grades saved successfully!', 'success')
@@ -291,37 +305,67 @@ export default function GradeEntry({ user }: { user: AppUser }) {
         <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-[#1e3a5f] text-white text-xs">
-              <th className="text-left px-5 py-3.5 font-semibold">Student</th>
+              <th className="text-left px-3 py-3 font-semibold">Student</th>
               {components.map(comp => (
-                <th key={comp.id} className="px-3 py-3.5 font-semibold text-center">
-                  {comp.name}<br /><span className="font-normal opacity-60">{comp.weight}%</span>
+                <th key={comp.id} colSpan={2} className="px-1 py-3 font-semibold text-center">
+                  <div className="text-[0.5rem] uppercase tracking-wider">{comp.name.replace(/\(.*\)/, '').trim()}</div>
+                  <div className="font-normal opacity-60">{comp.weight}%</div>
                 </th>
               ))}
-              <th className="px-3 py-3.5 font-semibold text-center">Final</th>
+              <th className="px-2 py-3 font-semibold text-center">Initial</th>
+              <th className="px-2 py-3 font-semibold text-center">Transmuted</th>
+              <th className="px-2 py-3 font-semibold text-center">Proficiency</th>
+            </tr>
+            <tr className="bg-[#1e3a5f]/85 text-white/70 text-[0.5rem] uppercase tracking-wider">
+              <th></th>
+              {components.map(comp => (
+                <th key={`h-${comp.id}`} colSpan={2} className="px-1 py-1 font-normal text-center">
+                  <span className="inline-block w-10">Score</span>
+                  <span className="inline-block w-10">Max</span>
+                </th>
+              ))}
+              <th colSpan={3}></th>
             </tr>
           </thead>
           <tbody>
             {students.map(s => {
-              const final = calcFinal(s.id)
+              const { initial, transmuted: t, descriptor } = calcFinal(s.id)
               return (
                 <tr key={s.id} className="border-b border-border hover:bg-secondary/20 transition-colors">
-                  <td className="px-5 py-3 font-semibold text-foreground">{s.name}</td>
-                  {components.map(comp => (
-                    <td key={comp.id} className="px-3 py-3 text-center">
-                      <input
-                        type="number"
-                        min={0} max={100}
-                        value={scores[s.id]?.[comp.id] || ''}
-                        onChange={e => updateScore(s.id, comp.id, e.target.value)}
-                        className="w-16 text-center px-2 py-1.5 rounded-lg border border-border bg-[#f5f1eb] focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-sm font-mono"
-                      />
-                    </td>
-                  ))}
-                  <td className="px-3 py-3 text-center">
-                    <span className={`font-bold px-2.5 py-0.5 rounded text-sm ${final >= 75 ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
-                      {final || '—'}
+                  <td className="px-3 py-2 font-semibold text-foreground text-xs">{s.name}</td>
+                  {components.map(comp => {
+                    const cell = scores[s.id]?.[comp.id] || { score: '', maxScore: '' }
+                    return (
+                      <td key={comp.id} colSpan={2} className="px-1 py-2 text-center">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <input
+                            type="number"
+                            min={0}
+                            value={cell.score}
+                            onChange={e => updateScore(s.id, comp.id, 'score', e.target.value)}
+                            className="w-10 text-center px-1 py-1 rounded border border-border bg-[#f5f1eb] focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-xs font-mono"
+                            placeholder="0"
+                          />
+                          <span className="text-xs text-muted-foreground">/</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={cell.maxScore}
+                            onChange={e => updateScore(s.id, comp.id, 'maxScore', e.target.value)}
+                            className="w-10 text-center px-1 py-1 rounded border border-border bg-[#f5f1eb] focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-xs font-mono text-muted-foreground"
+                            placeholder="50"
+                          />
+                        </div>
+                      </td>
+                    )
+                  })}
+                  <td className="px-2 py-2 text-center text-xs font-mono">{initial > 0 ? initial : '—'}</td>
+                  <td className="px-2 py-2 text-center">
+                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${t >= 75 ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+                      {t > 0 ? t : '—'}
                     </span>
                   </td>
+                  <td className="px-2 py-2 text-center text-[0.55rem] font-semibold text-muted-foreground max-w-[80px] leading-tight">{descriptor}</td>
                 </tr>
               )
             })}

@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { doc, updateDoc } from 'firebase/firestore'
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword, getAuth } from 'firebase/auth'
-import { db, sanitizeString, type AppUser } from '@academix/shared'
+import { updateUser, sanitizeString, type AppUser } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
 import { useAuth } from '../contexts/AuthContext'
@@ -23,7 +22,7 @@ export default function Profile({ user }: { user: AppUser }) {
     try {
       const updateData: Record<string, string> = { name: sanitizeString(name, 100) }
       if (user.role === 'student') updateData.section = sanitizeString(section, 50)
-      await updateDoc(doc(db, 'users', user.id), updateData)
+      await updateUser(user.id, updateData)
       await refreshUser()
       showToast('Profile updated!', 'success')
     } catch {
@@ -77,6 +76,12 @@ export default function Profile({ user }: { user: AppUser }) {
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Role</p>
             <p className="text-sm font-medium text-foreground capitalize">{user.role}</p>
           </div>
+          {user.lrn && (
+            <div className="space-y-1 mb-5 pb-4 border-b border-border">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">LRN</p>
+              <p className="text-sm font-mono font-medium text-foreground">{user.lrn}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSaveProfile} className="space-y-4">
             <div>

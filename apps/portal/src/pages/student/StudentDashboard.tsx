@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, doc, orderBy, limit, updateDoc } from 'firebase/firestore'
 import { BookOpen, Award, TrendingUp, CheckCircle2, Megaphone } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type GradeScore, type AttendanceRecord, type Subject, type Class, type Notification } from '@academix/shared'
+import {
+  listEnrollments, listGrades, listAttendance, listNotifications,
+  getClass, listSubjects,
+  markNotificationRead as markNotifRead,
+  type AppUser, type GradeScore, type AttendanceRecord, type Subject,
+  type Class, type Notification
+} from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface SubjectGrade {
   code: string
@@ -36,6 +42,7 @@ function formatTime(ts: number): string {
 }
 
 export default function StudentDashboard({ user }: { user: AppUser }) {
+  useAuth()
   const schoolId = user.schoolId || ''
   const [enrolledCount, setEnrolledCount] = useState(0)
   const [classIds, setClassIds] = useState<string[]>([])
@@ -49,115 +56,81 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setEnrolledCount(snap.size)
-        setClassIds(snap.docs.map(d => d.data().classId))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
-
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
-
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'attendance'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setAttendanceRecords(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord)))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
-
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'notifications'), where('userId', '==', user.id), orderBy('createdAt', 'desc'), limit(10)),
-      (snap) => {
-        const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Notification))
+    let cancelled = false
+    async function load() {
+      try {
+        const [enrollments, scores, attendance, notifs] = await Promise.all([
+          listEnrollments({ studentId: user.id }),
+          listGrades({ studentId: user.id }),
+          listAttendance({ studentId: user.id }),
+          listNotifications(user.id),
+        ])
+        if (cancelled) return
+        const cids = enrollments.map(e => e.classId)
+        setEnrolledCount(cids.length)
+        setClassIds(cids)
+        setAllScores(scores)
+        setAttendanceRecords(attendance)
         setNotifications(notifs)
         setUnreadCount(notifs.filter(n => !n.read).length)
+
+        if (cids.length) {
+          const classes = (await Promise.all(cids.map(cid => getClass(cid)))).filter(Boolean) as Class[]
+          if (cancelled) return
+          const subjectIds = [...new Set(classes.map(c => c.subjectId).filter(Boolean))]
+          const allSubjects = await listSubjects({ schoolId })
+          if (cancelled) return
+          const subjectsMap = new Map(allSubjects.map(s => [s.id, s]))
+
+          const grades: SubjectGrade[] = []
+          for (const cls of classes) {
+            const subject = subjectsMap.get(cls.subjectId)
+            if (!subject) continue
+            const clsScores = scores.filter(s => s.classId === cls.id)
+            let final = 0
+            for (const comp of subject.gradingComponents) {
+              const compScores = clsScores.filter(s => s.componentId === comp.id)
+              const avg = compScores.length
+                ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length
+                : 0
+              final += avg * (comp.weight / 100)
+            }
+            grades.push({ code: subject.code, title: subject.title, grade: Math.round(final) })
+          }
+          setSubjectGrades(grades)
+
+          if (grades.length) {
+            setAverageGrade(Math.round(grades.reduce((a, g) => a + g.grade, 0) / grades.length))
+          } else {
+            setAverageGrade(null)
+          }
+
+          if (attendance.length) {
+            const present = attendance.filter(a => a.status === 'PRESENT').length
+            setAttendanceRate(Math.round((present / attendance.length) * 100))
+          } else {
+            setAttendanceRate(null)
+          }
+        } else {
+          setSubjectGrades([])
+          setAverageGrade(null)
+          setAttendanceRate(null)
+        }
+        setReady(true)
+      } catch (err) {
+        console.error(err)
+        setReady(true)
       }
-    )
-    return unsub
-  }, [user.id])
-
-  useEffect(() => {
-    if (!classIds.length) return
-    const unsub = onSnapshot(
-      query(collection(db, 'gradeReleases'), where('classId', 'in', classIds)),
-      (snap) => {
-        snap.docs.forEach(d => {
-          const r = d.data() as { isReleased: boolean; classId: string }
-          if (r.isReleased) compute()
-        })
-      }
-    )
-    return unsub
-  }, [classIds])
-
-  async function compute() {
-    if (!classIds.length) {
-      setSubjectGrades([])
-      setAverageGrade(null)
-      setAttendanceRate(null)
-      setReady(true)
-      return
     }
-
-    const classesMap = await fetchDocsByIds<Class>('classes', classIds)
-    const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId).filter(Boolean))]
-    const subjectsMap = await fetchSubjectsByIds(subjectIds)
-
-    const grades: SubjectGrade[] = []
-    for (const cls of classesMap.values()) {
-      const subject = subjectsMap.get(cls.subjectId)
-      if (!subject) continue
-      const scores = allScores.filter(s => s.classId === cls.id)
-      let final = 0
-      for (const comp of subject.gradingComponents) {
-        const compScores = scores.filter(s => s.componentId === comp.id)
-        const avg = compScores.length
-          ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length
-          : 0
-        final += avg * (comp.weight / 100)
-      }
-      grades.push({ code: subject.code, title: subject.title, grade: Math.round(final) })
-    }
-    setSubjectGrades(grades)
-
-    if (grades.length) {
-      setAverageGrade(Math.round(grades.reduce((a, g) => a + g.grade, 0) / grades.length))
-    } else {
-      setAverageGrade(null)
-    }
-
-    if (attendanceRecords.length) {
-      const present = attendanceRecords.filter(a => a.status === 'PRESENT').length
-      setAttendanceRate(Math.round((present / attendanceRecords.length) * 100))
-    } else {
-      setAttendanceRate(null)
-    }
-
-    setReady(true)
-  }
-
-  useEffect(() => {
-    compute()
-  }, [classIds, allScores, attendanceRecords])
+    load()
+    return () => { cancelled = true }
+  }, [user.id, schoolId])
 
   async function markNotificationRead(id: string) {
     try {
-      await updateDoc(doc(db, 'notifications', id), { read: true })
+      await markNotifRead(id)
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+      setUnreadCount(prev => Math.max(0, prev - 1))
     } catch (err) { console.error('Failed to mark notification read:', err) }
   }
 

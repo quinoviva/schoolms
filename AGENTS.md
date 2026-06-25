@@ -2,23 +2,27 @@
 
 ## Stack
 
-pnpm workspace monorepo: `@academix/portal` (port 5173), `@academix/admin` (port 5174), `@academix/shared`. Vite 6 + React 18 + TypeScript per app. Firebase Auth + Firestore backend. Tailwind CSS v4 via `@tailwindcss/vite` — PostCSS intentionally empty, do not add plugins. Font: `'Google Sans', 'Inter', system-ui, sans-serif` via `@theme inline` CSS vars.
+pnpm workspace monorepo: `@academix/portal` (port 5173), `@academix/admin` (port 5174), `@academix/super-admin` (port 5175), `@academix/shared`. Vite 6 + React 18 + TypeScript per app. Firebase Auth + Firestore backend. Tailwind CSS v4 via `@tailwindcss/vite` — PostCSS intentionally empty, do not add plugins. Font: `'Google Sans', 'Inter', system-ui, sans-serif` via `@theme inline` CSS vars.
 
 ## Commands
 
 ```sh
 pnpm install            # install all workspace deps
-pnpm dev                # runs both portal + admin concurrently
+pnpm dev                # runs portal + admin + super-admin concurrently
 pnpm dev:portal         # portal only, port 5173
 pnpm dev:admin          # admin only, port 5174
+pnpm dev:super-admin    # super-admin only, port 5175
 pnpm build              # build all packages (shared → portal → admin)
 ```
 
-No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && vite build`.
+No test, lint, format, or typecheck tasks exist.
+- **Raw score entry**: `GradeEntry.tsx` shows `[score] / [maxScore]` inputs per component. Teacher enters raw scores with configurable max. `calcFinal()` does `(score/maxScore)*100 * weight`. `maxScore` persisted in Firestore `grade_scores` table.
+- **MATATAG subject presets**: `MATATAG_SUBJECTS` constant maps each grade level (K1–G10) to its prescribed learning areas per the MATATAG curriculum. Admin/Super-admin subject forms show a "MATATAG Preset" dropdown that auto-fills code, title, and subject group; a "Create All" button batch-creates all subjects for a grade in one click.
+- **School Forms (teacher)**: New `SchoolForms` page in the sidebar with three DepEd form tabs. SF1 (Class Registry) lists enrolled students with LRN. SF2 (Daily Attendance) shows a monthly grid with P/A/T/E per student and totals. SF10 (Permanent Record) shows a per-student grade summary across subjects. All three are printable via `window.print()`. Each app builds via `tsc -b && vite build`.
 
 ## Architecture — don't guess these
 
-- **Two independent SPAs** sharing a Firebase project via `@academix/shared` (source-level dep, no build step). Each has its own `vite.config.ts`, `tsconfig.json`, `.env`.
+- **Three independent SPAs** sharing a Firebase project via `@academix/shared` (source-level dep, no build step). Each has its own `vite.config.ts`, `tsconfig.json`, `.env`.
 - **Manual `useState` page routing** — no `<Routes>` or React Router imports. Look for `const [page, setPage] = useState(...)` + `switch (page)`. Pages are function components keyed by string.
 - **Admin role guard** in `admin/src/contexts/AuthContext.tsx` — immediately signs out any user whose Firestore profile does not have `role === 'admin'`. Admin `signIn` also checks role before allowing login.
 - **Firebase email convention**: stored internally as `{id}@schoolms.edu`. LoginPage auto-appends `VITE_EMAIL_DOMAIN` (default `@schoolms.edu`) if the input has no `@`. Password reset also auto-appends. `@x` is rejected by Firebase Auth — use `.edu` domains only.
@@ -32,11 +36,22 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 - **Google Drive integration**: Teachers paste Drive share URLs in `materials` collection — students see them and click to open in Drive. `extractDriveFileId()` parses URLs, `getDriveViewUrl()` builds the redirect link.
 - **Grade computation** in `packages/shared/src/utils/grades.ts` — DepEd transmutation table (60–100 scale), `computeFinalGrade()`, `transmute()`, `getGradeDescriptor()`. Report Cards page prints SF9-style cards per student.
 - **`mergeClassesWithSubjects()`** in `packages/shared/src/utils/merge.ts` — fetches subjects by ID and merges them into class objects. Used by 9 teacher portal pages.
-- **`schoolQuery(colRef, schoolId, ...constraints)`** in `packages/shared/src/utils/query.ts` — wraps `query()` with `where('schoolId', '==', schoolId)` for multi-tenant scoping.
+- **`schoolQuery(colRef, schoolId, ...constraints)`** in `packages/shared/src/utils/query.ts` — wraps `query()` with `where('schoolId', '==', schoolId)` for multi-tenant scoping. **Deprecated** — now each school has its own database.
 - **Email domain** configured via `VITE_EMAIL_DOMAIN` env var (defaults to `@schoolms.edu`). Login pages auto-append when input lacks `@`.
+- **Per-school Firestore databases** — each school gets a named database `school-{slug}` created via Cloud Function (`createSchoolDatabase`). The `(default)` database holds only the `schools` registry and auth user profiles. Admin/portal apps dynamically switch to the school's database after login via `schoolDb` from `useAuth()`.
+- **`getSchoolDb(databaseId)`** in `packages/shared/src/firebase/config.ts` — returns a cached Firestore instance for a named database. `DEFAULT_DB` is the `(default)` database. `db` is also the default database.
+- **Cloud Functions** in `functions/` directory. `createSchoolDatabase` (callable) creates a named Firestore database via REST API. `onSchoolCreated` (Firestore trigger) sets `databaseId` on the school doc.
+- **`functions/src/index.ts`** — `createSchoolDatabase` callable function takes `{ slug, schoolId }`, creates `school-{slug}` Firestore database using Google Auth client, waits for ACTIVE state, then updates the school doc with `databaseId`.
 
-## Firestore collections
+## Firestore databases
 
+### `(default)` — Super-admin registry
+| Collection | Key fields |
+|---|---|
+| `schools` | `name`, `slug`, `plan`, `isActive`, `databaseId`, `ownerName`, `ownerEmail` |
+| `users` | minimal auth profiles: `email`, `name`, `role`, `schoolId` |
+
+### `school-{slug}` — Per-school data
 | Collection | Key fields |
 |---|---|
 | `users` | `email`, `name`, `role`, `section`, `nfcUid` |
@@ -62,3 +77,6 @@ No test, lint, format, or typecheck tasks exist. Each app builds via `tsc -b && 
 - No emulators — connects directly to production.
 - When creating Firestore documents via code, spread `id` from the snapshot (`{ id: d.id, ...d.data() }`) — documents don't store their own id.
 - The `packages/shared/` entrypoint (`src/index.ts`) re-exports types + firebase config. It is a workspace dependency with `"main": "src/index.ts"` (no build output).
+- **Per-school databases**: Each school gets a named Firestore database `school-{slug}`. The super-admin `(default)` database holds only the `schools` registry and minimal user profiles.
+- **Dynamic DB switching**: Admin/portal apps read `schoolDb` from `useAuth()`. After login, they look up the school's `databaseId` from the `schools` doc and switch to that school's database automatically.
+- `db` in shared config is the `(default)` database (super-admin registry). Use `getSchoolDb(databaseId)` for school-specific queries. The `schoolDb` from `useAuth()` is pre-resolved to the logged-in user's school database.

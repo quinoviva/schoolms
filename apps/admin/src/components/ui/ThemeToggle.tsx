@@ -5,13 +5,11 @@ export default function ThemeToggle() {
   const { theme, toggle } = useTheme()
 
   return (
-    <button
-      onClick={toggle}
-      className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+    <button onClick={toggle}
+      className="p-2 rounded-xl hover:bg-secondary transition-colors"
       title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-    >
-      {theme === 'dark' ? <Sun size={15} className="text-muted-foreground" /> : <Moon size={15} className="text-muted-foreground" />}
+      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+      {theme === 'dark' ? <Sun size={16} className="text-muted-foreground" /> : <Moon size={16} className="text-muted-foreground" />}
     </button>
   )
 }

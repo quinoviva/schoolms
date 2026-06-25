@@ -1,13 +1,15 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db, type AppUser } from '@academix/shared'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
+import { auth, setTokenProvider, getUser, type AppUser } from '@academix/shared'
 
 interface AuthContextValue {
   firebaseUser: User | null
   appUser: AppUser | null
   loading: boolean
+  mustChangePassword: boolean
   signIn: (email: string, password: string) => Promise<void>
+  handlePasswordChange: (newPassword: string) => Promise<void>
+  dismissPasswordChange: () => void
   logout: () => Promise<void>
 }
 
@@ -17,19 +19,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
   const [appUser, setAppUser] = useState<AppUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
 
   useEffect(() => {
+    setTokenProvider(async () => {
+      const token = await auth.currentUser?.getIdToken()
+      return token || null
+    })
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user)
       if (user) {
-        const snap = await getDoc(doc(db, 'users', user.uid))
-        if (snap.exists()) {
-          const data = snap.data() as AppUser
-          setAppUser(data)
-          if (data.role !== 'admin') {
+        try {
+          const data = await getUser(user.uid)
+          if (data && data.role !== 'admin') {
             await signOut(auth)
             setAppUser(null)
+          } else {
+            setAppUser(data)
           }
+        } catch {
+          setAppUser(null)
         }
       } else {
         setAppUser(null)
@@ -41,19 +51,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     const cred = await signInWithEmailAndPassword(auth, email, password)
-    const snap = await getDoc(doc(db, 'users', cred.user.uid))
-    if (!snap.exists() || snap.data().role !== 'admin') {
+    const user = await getUser(cred.user.uid)
+    if (!user || user.role !== 'admin') {
       await signOut(auth)
       throw new Error('Access denied. Admin credentials required.')
     }
+    setAppUser(user)
+
+    const created = new Date(cred.user.metadata.creationTime || 0).getTime()
+    const lastSignIn = new Date(cred.user.metadata.lastSignInTime || 0).getTime()
+    if (created === lastSignIn) {
+      setMustChangePassword(true)
+    }
+  }
+
+  async function handlePasswordChange(newPassword: string) {
+    if (!auth.currentUser) throw new Error('No user signed in')
+    await updatePassword(auth.currentUser, newPassword)
+    setMustChangePassword(false)
+  }
+
+  function dismissPasswordChange() {
+    setMustChangePassword(false)
   }
 
   async function logout() {
     await signOut(auth)
+    setAppUser(null)
+    setMustChangePassword(false)
   }
 
   return (
-    <AuthContext.Provider value={{ firebaseUser, appUser, loading, signIn, logout }}>
+    <AuthContext.Provider value={{ firebaseUser, appUser, loading, mustChangePassword, signIn, handlePasswordChange, dismissPasswordChange, logout }}>
       {children}
     </AuthContext.Provider>
   )

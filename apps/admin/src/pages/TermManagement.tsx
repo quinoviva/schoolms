@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore'
-import { db, sanitizeString, type AcademicTerm } from '@academix/shared'
+import { listTerms, createTerm, updateTerm, sanitizeString, type AcademicTerm } from '@academix/shared'
 import { Plus, AlertTriangle, Archive, Eye, EyeOff } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -19,29 +18,29 @@ export default function TermManagement() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
 
-  useEffect(() => {
+  async function loadData() {
     if (!schoolId) return
-    const unsub = onSnapshot(query(collection(db, 'terms'), where('schoolId', '==', schoolId)), snap => {
-      setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm)))
-      setLoading(false)
-    })
-    return unsub
-  }, [schoolId])
+    const data = await listTerms(schoolId)
+    setTerms(data)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadData() }, [schoolId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     try {
-      const activeExists = terms.some(t => t.isActive)
-
-      await addDoc(collection(db, 'terms'), {
+      const id = crypto.randomUUID()
+      await createTerm({
+        id,
         label: sanitizeString(form.label, 100),
         semester: sanitizeString(form.semester, 50),
-        isActive: !activeExists,
+        isActive: terms.length === 0,
+        isArchived: false,
         schoolId,
         createdAt: Date.now(),
-      })
-
+      } as AcademicTerm)
       setForm({ label: '', semester: '' })
       setShowForm(false)
       showToast('Term created successfully', 'success')
@@ -54,10 +53,8 @@ export default function TermManagement() {
 
   async function toggleActive(id: string) {
     try {
-      const batch = terms.map(async t => {
-        await updateDoc(doc(db, 'terms', t.id), { isActive: t.id === id })
-      })
-      await Promise.all(batch)
+      await Promise.all(terms.filter(t => t.isActive).map(t => updateTerm(t.id, { isActive: false })))
+      await updateTerm(id, { isActive: true })
       showToast('Active term updated', 'success')
     } catch {
       showToast('Failed to update term', 'error')
@@ -67,17 +64,18 @@ export default function TermManagement() {
   async function handleDelete() {
     if (!deleteTarget) return
     try {
-      await deleteDoc(doc(db, 'terms', deleteTarget.id))
-      showToast('Term deleted', 'success')
+      // No delete API for terms in current routes, deactivate instead
+      await updateTerm(deleteTarget.id, { isArchived: true })
+      showToast('Term archived', 'success')
     } catch {
-      showToast('Failed to delete term', 'error')
+      showToast('Failed to archive term', 'error')
     }
     setDeleteTarget(null)
   }
 
   async function handleArchive(id: string) {
     try {
-      await updateDoc(doc(db, 'terms', id), { isArchived: true })
+      await updateTerm(id, { isArchived: true })
       showToast('Term archived', 'success')
     } catch {
       showToast('Failed to archive term', 'error')
@@ -186,9 +184,9 @@ export default function TermManagement() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete Term"
-        message={`Are you sure you want to delete "${deleteTarget?.label || 'this term'}"?`}
-        confirmLabel="Delete"
+        title="Archive Term"
+        message={`Are you sure you want to archive "${deleteTarget?.label || 'this term'}"?`}
+        confirmLabel="Archive"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />

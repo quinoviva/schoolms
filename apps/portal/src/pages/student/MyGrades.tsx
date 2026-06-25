@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import { BookOpen, Lock } from 'lucide-react'
-import { db, type GradeScore, type Subject, type Class, type AppUser, type GradeRelease } from '@academix/shared'
+import {
+  listEnrollments, listGrades, listGradeReleases,
+  getClass, listSubjects,
+  type GradeScore, type Subject, type Class, type AppUser, type GradeRelease
+} from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface SubjectWithGrades {
   subject: Subject
@@ -13,89 +17,62 @@ interface SubjectWithGrades {
 }
 
 export default function MyGrades({ user }: { user: AppUser }) {
+  useAuth()
   const schoolId = user.schoolId || ''
-  const [classIds, setClassIds] = useState<string[]>([])
-  const [allScores, setAllScores] = useState<GradeScore[]>([])
-  const [releasedSet, setReleasedSet] = useState<Set<string>>(new Set())
   const [subjects, setSubjects] = useState<SubjectWithGrades[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setClassIds(snap.docs.map(d => d.data().classId))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
+    let cancelled = false
+    async function load() {
+      try {
+        const [enrollments, scores, releases] = await Promise.all([
+          listEnrollments({ studentId: user.id }),
+          listGrades({ studentId: user.id }),
+          listGradeReleases(),
+        ])
+        if (cancelled) return
+        const classIds = enrollments.map(e => e.classId)
+        const releasedSet = new Set(
+          releases.filter(r => r.isReleased && classIds.includes(r.classId)).map(r => r.classId)
+        )
 
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'grades'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      (snap) => {
-        setAllScores(snap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
-      }
-    )
-    return unsub
-  }, [user.id, schoolId])
+        if (!classIds.length) {
+          setSubjects([])
+          setLoading(false)
+          return
+        }
 
-  useEffect(() => {
-    if (!classIds.length) { setReleasedSet(new Set()); return }
-    const unsub = onSnapshot(
-      query(collection(db, 'gradeReleases'), where('classId', 'in', classIds)),
-      (snap) => {
-        const s = new Set<string>()
-        snap.docs.forEach(d => {
-          const r = d.data() as GradeRelease
-          if (r.isReleased) s.add(r.classId)
-        })
-        setReleasedSet(s)
-      }
-    )
-    return unsub
-  }, [classIds])
-
-  useEffect(() => {
-    async function compute() {
-      if (!classIds.length) {
-        setSubjects([])
-        setLoading(false)
-        return
-      }
-
-      const batchSize = 10
-      const result: SubjectWithGrades[] = []
-
-      for (let i = 0; i < classIds.length; i += batchSize) {
-        const batch = classIds.slice(i, i + batchSize)
-        const classPromises = batch.map(cid => getDoc(doc(db, 'classes', cid)))
-        const classSnaps = await Promise.all(classPromises)
-        const classes = classSnaps.filter(s => s.exists()).map(s => ({ id: s.id, ...s.data() } as Class))
-
+        const classes = (await Promise.all(classIds.map(cid => getClass(cid)))).filter(Boolean) as Class[]
+        if (cancelled) return
         const subjIds = [...new Set(classes.map(c => c.subjectId))]
-        const subjPromises = subjIds.map(sid => getDoc(doc(db, 'subjects', sid)))
-        const subjSnaps = await Promise.all(subjPromises)
-        const subjMap = new Map(subjSnaps.filter(s => s.exists()).map(s => [s.id, { id: s.id, ...s.data() } as Subject]))
+        const allSubjects = await listSubjects({ schoolId })
+        if (cancelled) return
+        const subjMap = new Map(allSubjects.map(s => [s.id, s]))
 
+        const result: SubjectWithGrades[] = []
         for (const cls of classes) {
           const subject = subjMap.get(cls.subjectId)
           if (!subject) continue
-          const scores = allScores.filter(s => s.classId === cls.id)
+          const clsScores = scores.filter(s => s.classId === cls.id)
           let final = 0
           for (const comp of subject.gradingComponents) {
-            const compScores = scores.filter(s => s.componentId === comp.id)
+            const compScores = clsScores.filter(s => s.componentId === comp.id)
             const avg = compScores.length ? compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length : 0
             final += avg * (comp.weight / 100)
           }
-          result.push({ subject, scores, final: Math.round(final), released: releasedSet.has(cls.id), classId: cls.id })
+          result.push({ subject, scores: clsScores, final: Math.round(final), released: releasedSet.has(cls.id), classId: cls.id })
         }
+        setSubjects(result)
+        setLoading(false)
+      } catch (err) {
+        console.error(err)
+        setLoading(false)
       }
-      setSubjects(result)
-      setLoading(false)
     }
-    compute()
-  }, [classIds, allScores, releasedSet])
+    load()
+    return () => { cancelled = true }
+  }, [user.id, schoolId])
 
   if (loading) return <Spinner />
 
@@ -133,7 +110,7 @@ export default function MyGrades({ user }: { user: AppUser }) {
                       return (
                         <div key={comp.id} className="text-center p-3 rounded-lg bg-secondary/50">
                           <p className="text-xs text-muted-foreground">{comp.name}</p>
-                          <p className="text-xl font-bold text-[#1e3a5f]">{compScores.length ? avg : '�'}</p>
+                          <p className="text-xl font-bold text-[#1e3a5f]">{compScores.length ? avg : '—'}</p>
                           <p className="text-[0.65rem] text-muted-foreground">{comp.weight}% weight</p>
                         </div>
                       )
@@ -142,7 +119,7 @@ export default function MyGrades({ user }: { user: AppUser }) {
                   <div className="flex items-center justify-between pt-3 border-t border-border">
                     <span className="text-sm text-muted-foreground">Final Grade</span>
                     <span className={`text-2xl font-bold ${final >= 75 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      {final || '�'}
+                      {final || '—'}
                     </span>
                   </div>
                 </div>

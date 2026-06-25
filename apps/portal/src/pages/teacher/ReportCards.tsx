@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer } from 'lucide-react'
-import { db, fetchUsersByIds, mergeClassesWithSubjects, type AppUser, type Class, type Subject, type GradeScore, type AcademicTerm, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, getUser, listGrades, type AppUser, type Class, type Subject, type GradeScore, computeFinalGrade, transmute, getGradeDescriptor, PROFICIENCY_LEVELS } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 interface StudentInfo {
   id: string
   name: string
   section: string
+  lrn?: string
 }
 
 interface StudentReport {
@@ -27,16 +27,23 @@ export default function ReportCards({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-        setLoading(false)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   useEffect(() => {
@@ -45,18 +52,17 @@ export default function ReportCards({ user }: { user: AppUser }) {
     if (!cls) return
 
     async function load() {
-      const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)))
-      const studentIds = enrollSnap.docs.map(d => d.data().studentId)
-      const userMap = await fetchUsersByIds(studentIds)
+      const enrollData = await listEnrollments({ classId: selectedClassId })
+      const studentIds = enrollData.map(e => e.studentId)
+      const users = (await Promise.all(studentIds.map(id => getUser(id)))).filter(Boolean) as AppUser[]
       const studentList: StudentInfo[] = studentIds
         .map(id => {
-          const user = userMap.get(id)
-          return user ? { id, name: user.name, section: user.section || cls!.section } : null
+          const u = users.find(uu => uu.id === id)
+          return u ? { id: u.id, name: u.name, section: u.section || cls!.section, lrn: u.lrn } : null
         })
         .filter(Boolean) as StudentInfo[]
 
-      const gradesSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
-      const allScores = gradesSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore))
+      const allScores = await listGrades({ classId: selectedClassId })
 
       const reports: StudentReport[] = studentList.map(s => {
         const scores = allScores.filter(g => g.studentId === s.id)
@@ -114,63 +120,111 @@ export default function ReportCards({ user }: { user: AppUser }) {
         }
       `}</style>
 
-      {students.map(({ student, scores, final, transmuted, descriptor }) => (
+      {students.map(({ student, scores, final, transmuted, descriptor }) => {
+        const schoolName = 'ACADEMIX'
+        const gradeLevel = selectedClass?.subject.gradeLevel || ''
+        return (
         <div key={student.id} className="report-card bg-white rounded-xl border border-border shadow-sm mb-6 p-8">
-          <div className="text-center mb-6 border-b-2 border-[#1e3a5f] pb-4">
-            <h2 className="text-lg font-bold text-[#1e3a5f]">ACADEMIX</h2>
-            <p className="text-xs text-muted-foreground">Student Report Card</p>
+          <div className="text-center border-b-2 border-[#1e3a5f] pb-3 mb-5">
+            <h2 className="text-base font-bold text-[#1e3a5f] tracking-wide">{schoolName}</h2>
+            <p className="text-[0.6rem] uppercase tracking-widest text-muted-foreground">Learner Progress Report Card</p>
+            <p className="text-[0.55rem] text-muted-foreground">(Formerly Form 138) &mdash; SF9</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 text-sm mb-6">
+          <div className="grid grid-cols-3 gap-3 text-[0.7rem] mb-5 border border-border rounded-lg p-3 bg-[#f8f5f0]">
             <div>
-              <p><span className="font-semibold">Student:</span> {student.name}</p>
-              <p><span className="font-semibold">Section:</span> {student.section}</p>
+              <p className="font-semibold text-foreground">Learner: <span className="font-normal">{student.name}</span></p>
+              <p className="font-semibold text-foreground mt-1">LRN: <span className="font-normal font-mono">{student.lrn || '\u2014'}</span></p>
             </div>
             <div>
-              <p><span className="font-semibold">Subject:</span> {selectedClass?.subject.title} ({selectedClass?.subject.code})</p>
-              <p><span className="font-semibold">Teacher:</span> {user.name}</p>
+              <p className="font-semibold text-foreground">Grade Level: <span className="font-normal">{gradeLevel}</span></p>
+              <p className="font-semibold text-foreground mt-1">Section: <span className="font-normal">{student.section}</span></p>
+            </div>
+            <div>
+              <p className="font-semibold text-foreground">Subject: <span className="font-normal">{selectedClass?.subject.title} ({selectedClass?.subject.code})</span></p>
+              <p className="font-semibold text-foreground mt-1">Adviser: <span className="font-normal">{user.name}</span></p>
             </div>
           </div>
 
-          <table className="w-full text-sm mb-4">
+          <table className="w-full text-xs border-collapse mb-4">
             <thead>
-              <tr className="bg-[#1e3a5f] text-white text-xs">
-                <th className="text-left px-4 py-2.5 font-semibold">Component</th>
-                <th className="text-center px-4 py-2.5 font-semibold">Weight</th>
-                <th className="text-center px-4 py-2.5 font-semibold">Score</th>
-                <th className="text-center px-4 py-2.5 font-semibold">Percentage</th>
+              <tr className="bg-[#1e3a5f] text-white">
+                <th className="text-left px-3 py-2 font-semibold border border-[#2a4a75]">Component</th>
+                <th className="text-center px-3 py-2 font-semibold border border-[#2a4a75]">Weight</th>
+                <th className="text-center px-3 py-2 font-semibold border border-[#2a4a75]">Raw Score</th>
+                <th className="text-center px-3 py-2 font-semibold border border-[#2a4a75]">PS</th>
+                <th className="text-center px-3 py-2 font-semibold border border-[#2a4a75]">WS</th>
               </tr>
             </thead>
             <tbody>
               {selectedClass?.subject.gradingComponents.map(comp => {
                 const compScores = scores.filter(s => s.componentId === comp.id)
-                const avg = compScores.length
+                const ps = compScores.length
                   ? Math.round(compScores.reduce((a, s) => a + (s.score / s.maxScore) * 100, 0) / compScores.length)
                   : 0
+                const ws = ps * (comp.weight / 100)
                 return (
                   <tr key={comp.id} className="border-b border-border">
-                    <td className="px-4 py-2 font-medium">{comp.name}</td>
-                    <td className="px-4 py-2 text-center">{comp.weight}%</td>
-                    <td className="px-4 py-2 text-center">{compScores.length ? `${avg}%` : '—'}</td>
-                    <td className="px-4 py-2 text-center">{(avg * (comp.weight / 100)).toFixed(1)}%</td>
+                    <td className="px-3 py-1.5 font-medium">{comp.name}</td>
+                    <td className="px-3 py-1.5 text-center">{comp.weight}%</td>
+                    <td className="px-3 py-1.5 text-center font-mono">{compScores.length ? `${compScores[0].score}/${compScores[0].maxScore}` : '\u2014'}</td>
+                    <td className="px-3 py-1.5 text-center font-mono">{ps || '\u2014'}</td>
+                    <td className="px-3 py-1.5 text-center font-mono">{ws ? ws.toFixed(1) : '\u2014'}</td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
 
-          <div className="bg-[#f8f5f0] rounded-lg p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground"><span className="font-semibold text-foreground">Initial Grade:</span> {final || 'N/A'}</p>
-              <p className="text-sm text-muted-foreground"><span className="font-semibold text-foreground">Transmuted:</span> {transmuted || 'N/A'}</p>
+          <div className="border border-border rounded-lg overflow-hidden mb-4">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-[#1e3a5f] text-white">
+                  <th className="px-3 py-1.5 text-left font-semibold border border-[#2a4a75]">Initial Grade</th>
+                  <th className="px-3 py-1.5 text-center font-semibold border border-[#2a4a75]">Transmuted</th>
+                  <th className="px-3 py-1.5 text-center font-semibold border border-[#2a4a75]" colSpan={2}>Proficiency Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-white">
+                  <td className="px-3 py-2 text-center font-mono text-sm">{final || '\u2014'}</td>
+                  <td className="px-3 py-2 text-center">
+                    <span className="text-lg font-bold text-[#1e3a5f]">{transmuted || '\u2014'}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center font-semibold">{descriptor}</td>
+                  <td className="px-3 py-2 text-center text-[0.55rem] text-muted-foreground">
+                    {transmuted >= 75 ? 'PASSED' : 'FAILED'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="text-[0.55rem] text-muted-foreground border-t border-border pt-3 mt-4">
+            <p className="font-semibold mb-1">Proficiency Level Legends:</p>
+            <div className="grid grid-cols-5 gap-2">
+              {PROFICIENCY_LEVELS.map(pl => (
+                <div key={pl.label} className="text-center">
+                  <span className="font-semibold">{pl.label}</span>
+                  <br />({pl.min}{pl.min === 90 ? '\u2013100' : pl.min === 75 ? '\u201379' : pl.min === 0 ? ' below' : `\u2013${pl.min + 4}`})
+                </div>
+              ))}
             </div>
-            <div className="text-right">
-              <p className="text-3xl font-bold text-[#1e3a5f]">{transmuted || '—'}</p>
-              <p className="text-xs text-muted-foreground">{descriptor}</p>
+          </div>
+
+          <div className="mt-5 pt-3 border-t border-border flex justify-between text-[0.6rem] text-muted-foreground">
+            <div className="text-center flex-1">
+              <p>___________________________</p>
+              <p className="font-semibold text-foreground mt-0.5">Teacher / Adviser</p>
+            </div>
+            <div className="text-center flex-1">
+              <p>___________________________</p>
+              <p className="font-semibold text-foreground mt-0.5">Parent / Guardian Signature</p>
             </div>
           </div>
         </div>
-      ))}
+        )
+      })}
 
       {students.length === 0 && selectedClassId && (
         <div className="text-center py-16 text-muted-foreground text-sm">No enrolled students with grade data.</div>

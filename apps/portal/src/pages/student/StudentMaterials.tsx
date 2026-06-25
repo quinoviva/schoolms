@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { ExternalLink, FolderOpen, BookOpen } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, type AppUser, type DriveLink, type Class, type Subject, getDriveIcon, getDriveViewUrl } from '@academix/shared'
+import {
+  listEnrollments, listDriveLinks, getClass, listSubjects,
+  type AppUser, type DriveLink, type Class, type Subject, getDriveIcon, getDriveViewUrl
+} from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface ClassWithSubject {
   id: string
@@ -11,50 +14,54 @@ interface ClassWithSubject {
 }
 
 export default function StudentMaterials({ user }: { user: AppUser }) {
+  useAuth()
   const schoolId = user.schoolId || ''
   const [classList, setClassList] = useState<ClassWithSubject[]>([])
   const [materials, setMaterials] = useState<Record<string, DriveLink[]>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const classIds = snap.docs.map(d => d.data().classId)
-        const classesMap = await fetchDocsByIds<Class>('classes', classIds)
-        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
-        const subjectsMap = await fetchSubjectsByIds(subjectIds)
-        const list: ClassWithSubject[] = [...classesMap.values()]
+    let cancelled = false
+    async function load() {
+      try {
+        const enrollments = await listEnrollments({ studentId: user.id })
+        if (cancelled) return
+        const classIds = enrollments.map(e => e.classId)
+
+        const [classes, allLinks] = await Promise.all([
+          Promise.all(classIds.map(cid => getClass(cid))),
+          listDriveLinks(),
+        ])
+        if (cancelled) return
+        const validClasses = classes.filter(Boolean) as Class[]
+        const subjectIds = [...new Set(validClasses.map(c => c.subjectId))]
+        const allSubjects = await listSubjects({ schoolId })
+        if (cancelled) return
+        const subjectsMap = new Map(allSubjects.map(s => [s.id, s]))
+
+        const list: ClassWithSubject[] = validClasses
           .map(cls => {
             const subject = subjectsMap.get(cls.subjectId)
-            return subject ? { id: cls.id!, subject, section: cls.section } : null
+            return subject ? { id: cls.id, subject, section: cls.section } : null
           })
           .filter(Boolean) as ClassWithSubject[]
         setClassList(list)
-      }
-    )
-    return unsub
-  }, [user])
 
-  useEffect(() => {
-    if (!classList.length) { setMaterials({}); setLoading(false); return }
-    const classIds = classList.map(c => c.id)
-    if (!classIds.length) return
-    const unsub = onSnapshot(
-      query(collection(db, 'materials'), where('classId', 'in', classIds.slice(0, 10))),
-      (snap) => {
         const grouped: Record<string, DriveLink[]> = {}
         for (const cid of classIds) grouped[cid] = []
-        snap.docs.forEach(d => {
-          const data = d.data() as DriveLink & { classId: string }
-          if (grouped[data.classId]) grouped[data.classId].push({ ...data, id: d.id })
-        })
+        for (const link of allLinks) {
+          if (grouped[link.classId]) grouped[link.classId].push(link)
+        }
         setMaterials(grouped)
+        setLoading(false)
+      } catch (err) {
+        console.error(err)
+        setLoading(false)
       }
-    )
-    setLoading(false)
-    return () => unsub()
-  }, [classList])
+    }
+    load()
+    return () => { cancelled = true }
+  }, [user.id, schoolId])
 
   if (loading) return <Spinner />
 

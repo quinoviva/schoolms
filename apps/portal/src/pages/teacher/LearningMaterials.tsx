@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore'
 import { Plus, Link, ExternalLink, Trash2, FolderOpen } from 'lucide-react'
-import { db, mergeClassesWithSubjects, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@academix/shared'
+import { listClasses, listSubjects, listDriveLinks, createDriveLink, deleteDriveLink, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type DriveLink, extractDriveFileId, getDriveIcon, getDriveViewUrl } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
@@ -22,27 +21,34 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-        setLoading(false)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   useEffect(() => {
     if (!selectedClassId) { setMaterials([]); return }
-    const unsub = onSnapshot(
-      query(collection(db, 'materials'), where('classId', '==', selectedClassId)),
-      (snap) => {
-        setMaterials(snap.docs.map(d => ({ id: d.id, ...d.data() } as DriveLink)))
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const links = await listDriveLinks({ classId: selectedClassId })
+      if (!cancelled) setMaterials(links)
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   async function handleAdd(e: React.FormEvent) {
@@ -52,7 +58,8 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
     if (!fileId) { showToast('Invalid Google Drive URL.', 'error'); return }
     setSaving(true)
     try {
-      await addDoc(collection(db, 'materials'), {
+      await createDriveLink({
+        id: crypto.randomUUID(),
         classId: selectedClassId,
         teacherId: user.id,
         title: sanitizeString(title || driveUrl, 200),
@@ -60,7 +67,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
         driveFileId: fileId,
         schoolId,
         createdAt: Date.now(),
-      } satisfies Omit<DriveLink, 'id'>)
+      })
       setTitle(''); setDriveUrl(''); setShowForm(false)
       showToast('Material added!', 'success')
       await createAuditLog(user.id, user.email, 'create', 'materials', selectedClassId, `Added material: ${sanitizeString(title || driveUrl, 100)}`)
@@ -75,7 +82,7 @@ export default function LearningMaterials({ user }: { user: AppUser }) {
   async function handleDelete() {
     if (!deleteTarget) return
     try {
-      await deleteDoc(doc(db, 'materials', deleteTarget.id))
+      await deleteDriveLink(deleteTarget.id)
       await createAuditLog(user.id, user.email, 'delete', 'materials', deleteTarget.id, `Removed material: ${sanitizeString(deleteTarget.title, 100)}`)
       showToast('Material removed.', 'success')
     } catch { showToast('Failed to delete.', 'error') }

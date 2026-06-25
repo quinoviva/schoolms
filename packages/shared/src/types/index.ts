@@ -1,15 +1,25 @@
 export type Role = 'student' | 'teacher' | 'admin' | 'super_admin'
+export type SchoolLevel = 'kinder' | 'elementary' | 'highschool' | 'senior_highschool'
+
+export const SCHOOL_LEVELS: Record<SchoolLevel, { label: string; grades: string[] }> = {
+  kinder: { label: 'Kinder', grades: ['K1', 'K2'] },
+  elementary: { label: 'Elementary', grades: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'] },
+  highschool: { label: 'High School', grades: ['G7', 'G8', 'G9', 'G10'] },
+  senior_highschool: { label: 'Senior High School', grades: ['G11', 'G12'] },
+}
 
 export interface School {
   id: string
   name: string
   slug: string
   domain?: string
-  plan: 'free' | 'basic' | 'pro'
   isActive: boolean
   ownerName: string
   ownerEmail: string
+  levels: SchoolLevel[]
+  databaseId?: string
   createdAt: number
+  updatedAt?: number
 }
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'EXCUSED' | 'TARDY'
@@ -22,6 +32,7 @@ export interface AppUser {
   schoolId?: string
   section?: string
   nfcUid?: string
+  lrn?: string
   createdAt: number
 }
 
@@ -49,6 +60,7 @@ export interface Subject {
   termId: string
   gradeLevel: string
   gradingComponents: GradingComponent[]
+  subjectGroup?: string
   schoolId?: string
   createdAt: number
 }
@@ -89,7 +101,7 @@ export interface AttendanceRecord {
   classId: string
   date: string
   status: AttendanceStatus
-  remarks: string
+  remarks?: string
   recordedBy: string
   schoolId?: string
 }
@@ -190,6 +202,14 @@ export interface ClassroomElement {
   height: number
   studentId?: string | null
   label?: string
+}
+
+export function getGradesForLevels(levels: SchoolLevel[]): string[] {
+  const grades: string[] = []
+  for (const level of levels) {
+    if (SCHOOL_LEVELS[level]) grades.push(...SCHOOL_LEVELS[level].grades)
+  }
+  return grades
 }
 
 export interface SeatPlan {

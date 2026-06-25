@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import AdminLoginPage from './components/AdminLoginPage'
 import AdminLayout from './layouts/AdminLayout'
+import ChangePasswordForm from './components/ChangePasswordForm'
 import ToastContainer from './components/ui/ToastContainer'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -18,11 +19,12 @@ function Loading() {
 }
 
 function AdminRoutes() {
-  const { appUser, loading } = useAuth()
+  const { appUser, loading, mustChangePassword } = useAuth()
   const [page, setPage] = useState('/')
 
   if (loading) return <Loading />
   if (!appUser) return <AdminLoginPage />
+  if (mustChangePassword) return <ChangePasswordForm />
 
   function renderPage() {
     switch (page) {

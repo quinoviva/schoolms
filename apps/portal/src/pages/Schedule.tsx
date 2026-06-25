@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { CalendarDays } from 'lucide-react'
-import { db, fetchSubjectsByIds, fetchDocsByIds, type AppUser, type Class, type Subject, type Enrollment } from '@academix/shared'
+import { listClasses, listEnrollments, listSubjects, type AppUser, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 
 interface ScheduleItem {
@@ -51,78 +50,73 @@ export default function Schedule({ user }: { user: AppUser }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     async function load() {
-      if (user.role === 'teacher') {
-        const unsub = loadTeacherSchedule()
-        setLoading(false)
-        return unsub
-      } else {
-        const unsub = loadStudentSchedule()
-        setLoading(false)
-        return unsub
+      setLoading(true)
+      try {
+        if (user.role === 'teacher') {
+          await loadTeacherSchedule()
+        } else {
+          await loadStudentSchedule()
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
-    const unsubPromise = load()
-    return () => { unsubPromise.then(u => u?.()) }
+    load()
+    return () => { cancelled = true }
   }, [user, schoolId])
 
-  function loadTeacherSchedule() {
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-        const subjectMap = await fetchSubjectsByIds(classData.map(c => c.subjectId))
-        const result: ScheduleItem[] = []
-        for (const cls of classData) {
-          const subject = subjectMap.get(cls.subjectId)
-          if (!subject) continue
-          const { days, time } = parseSchedule(cls.schedule)
-          if (!days.length) continue
-          result.push({
-            classId: cls.id,
-            subjectCode: subject.code,
-            subjectTitle: subject.title,
-            section: cls.section,
-            time,
-            room: cls.room,
-            days,
-          })
-        }
-        setItems(result)
-      }
-    )
-    return unsub
+  async function loadTeacherSchedule() {
+    const classData = await listClasses({ schoolId, teacherId: user.id })
+    const subjectIds = [...new Set(classData.map(c => c.subjectId))]
+    const subjects = await listSubjects({ schoolId })
+    const subjectMap = new Map(subjects.map(s => [s.id, s]))
+    const result: ScheduleItem[] = []
+    for (const cls of classData) {
+      const subject = subjectMap.get(cls.subjectId)
+      if (!subject) continue
+      const { days, time } = parseSchedule(cls.schedule)
+      if (!days.length) continue
+      result.push({
+        classId: cls.id,
+        subjectCode: subject.code,
+        subjectTitle: subject.title,
+        section: cls.section,
+        time,
+        room: cls.room,
+        days,
+      })
+    }
+    setItems(result)
   }
 
-  function loadStudentSchedule() {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const enrollmentIds = snap.docs.map(d => (d.data() as Enrollment).classId)
-        if (!enrollmentIds.length) { setItems([]); return }
-        const classesMap = await fetchDocsByIds<Class>('classes', enrollmentIds)
-        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
-        const subjectMap = await fetchSubjectsByIds(subjectIds)
-        const result: ScheduleItem[] = []
-        for (const cls of classesMap.values()) {
-          const subject = subjectMap.get(cls.subjectId)
-          if (!subject) continue
-          const { days, time } = parseSchedule(cls.schedule)
-          if (!days.length) continue
-          result.push({
-            classId: cls.id!,
-            subjectCode: subject.code,
-            subjectTitle: subject.title,
-            section: cls.section,
-            time,
-            room: cls.room,
-            days,
-          })
-        }
-        setItems(result)
-      }
-    )
-    return unsub
+  async function loadStudentSchedule() {
+    const enrollments = await listEnrollments({ studentId: user.id })
+    const enrollmentIds = enrollments.map(e => e.classId)
+    if (!enrollmentIds.length) { setItems([]); return }
+    const allClasses = await listClasses({ schoolId })
+    const classesMap = new Map(allClasses.filter(c => enrollmentIds.includes(c.id)).map(c => [c.id, c]))
+    const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
+    const subjects = await listSubjects({ schoolId })
+    const subjectMap = new Map(subjects.map(s => [s.id, s]))
+    const result: ScheduleItem[] = []
+    for (const cls of classesMap.values()) {
+      const subject = subjectMap.get(cls.subjectId)
+      if (!subject) continue
+      const { days, time } = parseSchedule(cls.schedule)
+      if (!days.length) continue
+      result.push({
+        classId: cls.id,
+        subjectCode: subject.code,
+        subjectTitle: subject.title,
+        section: cls.section,
+        time,
+        room: cls.room,
+        days,
+      })
+    }
+    setItems(result)
   }
 
   const grid = useMemo(() => {

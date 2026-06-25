@@ -1,5 +1,4 @@
-import { addDoc, collection } from 'firebase/firestore'
-import { db } from '@academix/shared'
+import { createNotification as apiCreateNotification } from '@academix/shared'
 
 export async function createNotification(
   userId: string,
@@ -8,13 +7,14 @@ export async function createNotification(
   relatedId: string,
   schoolId?: string
 ) {
-  await addDoc(collection(db, 'notifications'), {
+  await apiCreateNotification({
+    id: crypto.randomUUID(),
     userId,
     type,
     message,
     read: false,
     relatedId,
-    schoolId: schoolId || null,
+    schoolId: schoolId || '',
     createdAt: Date.now(),
   })
 }

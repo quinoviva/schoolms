@@ -1,13 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
-import { createUserWithEmailAndPassword, deleteUser } from 'firebase/auth'
-import { httpsCallable } from 'firebase/functions'
-import { db, auth, functions, sanitizeString, type AppUser, type Role } from '@academix/shared'
+import { useRef, useState } from 'react'
+import { createUserWithEmailAndPassword } from 'firebase/auth'
+import { auth, createUser, updateUser, deleteUser, listUsers, sanitizeString, type AppUser, type Role } from '@academix/shared'
 import { Search, Plus, AlertTriangle, Pencil, Upload, Users, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
-import { createAuditLog } from '../utils/auditLog'
 import { useAuth } from '../contexts/AuthContext'
 
 const ROLE_STYLES: Record<string, string> = {
@@ -23,7 +20,7 @@ export default function UserManagement() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'student' as Role, section: '' })
+  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'student' as Role, section: '', lrn: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -33,8 +30,9 @@ export default function UserManagement() {
   const [editSaving, setEditSaving] = useState(false)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
-  const [pageCursors, setPageCursors] = useState<(string | null)[]>([null])
-  const [totalEstimate, setTotalEstimate] = useState(0)
+  const [roleTab, setRoleTab] = useState<'all' | 'admin' | 'teacher' | 'student'>('all')
+  const [sortKey, setSortKey] = useState<'name' | 'email' | 'role'>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const [importing, setImporting] = useState(false)
   const [showBulkForm, setShowBulkForm] = useState(false)
@@ -43,22 +41,16 @@ export default function UserManagement() {
   const [bulkRunning, setBulkRunning] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  async function loadPage(pageNum: number) {
+  async function loadData() {
     setLoading(true)
-    const cursor = pageCursors[pageNum - 1] || null
-    let q = query(collection(db, 'users'), where('schoolId', '==', schoolId), orderBy('name'), limit(PAGE_SIZE))
-    if (cursor) q = query(collection(db, 'users'), where('schoolId', '==', schoolId), orderBy('name'), startAfter(cursor), limit(PAGE_SIZE))
-    const snap = await getDocs(q)
-    const results = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string }))
-    setUsers(results)
-    const lastDoc = snap.docs[snap.docs.length - 1]
-    const newCursors = [...pageCursors]
-    newCursors[pageNum] = lastDoc ? lastDoc.data().name : null
-    setPageCursors(newCursors)
+    try {
+      const all = await listUsers({ schoolId })
+      setUsers(all as (AppUser & { id: string })[])
+    } catch { }
     setLoading(false)
   }
 
-  useEffect(() => { if (schoolId) loadPage(1) }, [schoolId])
+  useState(() => { if (schoolId) loadData() })
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -66,17 +58,17 @@ export default function UserManagement() {
     setError('')
     try {
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password)
-      await setDoc(doc(db, 'users', cred.user.uid), {
+      await createUser({
         id: cred.user.uid,
         email: sanitizeString(form.email, 255),
         name: sanitizeString(form.name, 100),
         role: form.role,
         section: form.role === 'student' ? sanitizeString(form.section, 50) : '',
+        lrn: form.role === 'student' ? sanitizeString(form.lrn, 12) : '',
         schoolId,
         createdAt: Date.now(),
-      } satisfies AppUser)
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Created user: ' + form.name)
-      setForm({ email: '', password: '', name: '', role: 'student', section: '' })
+      } as AppUser)
+      setForm({ email: '', password: '', name: '', role: 'student', section: '', lrn: '' })
       setShowForm(false)
       showToast('User created successfully', 'success')
     } catch (err: any) {
@@ -89,15 +81,8 @@ export default function UserManagement() {
 
   async function handleDelete() {
     if (!deleteTarget) return
-    const { id } = deleteTarget
     try {
-      await deleteDoc(doc(db, 'users', id))
-      try {
-        const deleteAuthUser = httpsCallable(functions, 'deleteAuthUser')
-        await deleteAuthUser({ uid: id })
-      } catch {
-      }
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'delete', 'users', id, 'Deleted user: ' + deleteTarget.name)
+      await deleteUser(deleteTarget.id)
       showToast('User deleted successfully', 'success')
     } catch {
       showToast('Failed to delete user', 'error')
@@ -114,12 +99,11 @@ export default function UserManagement() {
     if (!editTarget) return
     setEditSaving(true)
     try {
-      await updateDoc(doc(db, 'users', editTarget.id), {
+      await updateUser(editTarget.id, {
         name: sanitizeString(editForm.name, 100),
         section: editForm.role === 'student' ? sanitizeString(editForm.section, 50) : '',
         role: editForm.role,
       })
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'update', 'users', editTarget.id, 'Updated user: ' + editForm.name)
       showToast('User updated successfully', 'success')
       setEditTarget(null)
     } catch {
@@ -129,29 +113,28 @@ export default function UserManagement() {
     }
   }
 
-  const filtered = users.filter(u =>
+  function handleSort(key: typeof sortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const roleFiltered = roleTab === 'all' ? users : users.filter(u => u.role === roleTab)
+  const searched = roleFiltered.filter(u =>
     !search ||
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase()) ||
-    u.role.toLowerCase().includes(search.toLowerCase())
+    u.role.toLowerCase().includes(search.toLowerCase()) ||
+    (u.lrn || '').includes(search)
   )
-  const totalPages = pageCursors[page] !== null ? page + 1 : page
-  const safePage = Math.min(page, totalPages)
-
-  function handleSearch(v: string) {
-    setSearch(v)
-    setPage(1)
-    loadPage(1)
-  }
-
-  function goToPage(p: number) {
-    setPage(p)
-    loadPage(p)
-  }
+  const filtered = [...searched].sort((a, b) => {
+    const av = (a[sortKey] || '').toLowerCase()
+    const bv = (b[sortKey] || '').toLowerCase()
+    return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+  })
 
   function handleExportCSV() {
-    const headers = ['Name', 'Email', 'Role', 'Section']
-    const rows = users.map(u => [u.name, u.email, u.role, u.section || ''])
+    const headers = ['Name', 'Email', 'Role', 'Section', 'LRN']
+    const rows = users.map(u => [u.name, u.email, u.role, u.section || '', u.lrn || ''])
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -192,7 +175,7 @@ export default function UserManagement() {
         if (!email || !password) continue
         try {
           const cred = await createUserWithEmailAndPassword(auth, email, password)
-          await setDoc(doc(db, 'users', cred.user.uid), {
+          await createUser({
             id: cred.user.uid,
             email: sanitizeString(email, 255),
             name: sanitizeString(name || email, 100),
@@ -200,8 +183,7 @@ export default function UserManagement() {
             section: role === 'student' ? sanitizeString(section, 50) : '',
             schoolId,
             createdAt: Date.now(),
-          } satisfies AppUser)
-          await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Imported user: ' + (name || email))
+          } as AppUser)
           showToast(`Imported ${name || email}`, 'success')
         } catch (err: any) {
           showToast(`Failed to import ${email}: ${err.message}`, 'error')
@@ -225,21 +207,21 @@ export default function UserManagement() {
 
     async function createOne(parts: string[], lineNum: number) {
       if (parts.length < 4) {
-        return { line: lineNum, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: ID,Last,First,Section,Birthday' }
+        return { line: lineNum, id: '', name: parts[1] || '', success: false, error: 'Invalid format. Use: LRN,Last,First,Section,Birthday' }
       }
-      const [idNum, lastName, firstName, section, birthdate] = parts
-      const email = `${idNum}${import.meta.env.VITE_EMAIL_DOMAIN || '@schoolms.edu'}`
+      const [lrn, lastName, firstName, section, birthdate] = parts
+      const email = `${lrn}${import.meta.env.VITE_EMAIL_DOMAIN || '@schoolms.edu'}`
       const password = `${lastName}.${firstName}(${birthdate || ''})`
       const name = `${firstName} ${lastName}`
       try {
         const cred = await createUserWithEmailAndPassword(auth, email, password)
-        await setDoc(doc(db, 'users', cred.user.uid), {
-          id: cred.user.uid, email: sanitizeString(email, 255), name: sanitizeString(name, 100), role: 'student', section: sanitizeString(section, 50), schoolId, createdAt: Date.now(),
-        } satisfies AppUser)
-        await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'users', cred.user.uid, 'Bulk created: ' + name)
-        return { line: lineNum, id: idNum, name, success: true }
+        await createUser({
+          id: cred.user.uid, email: sanitizeString(email, 255), name: sanitizeString(name, 100),
+          role: 'student', section: sanitizeString(section, 50), schoolId, lrn: sanitizeString(lrn, 12), createdAt: Date.now(),
+        } as AppUser)
+        return { line: lineNum, id: lrn, name, success: true }
       } catch (err: any) {
-        return { line: lineNum, id: idNum, name, success: false, error: err.message }
+        return { line: lineNum, id: lrn, name, success: false, error: err.message }
       }
     }
 
@@ -312,13 +294,13 @@ export default function UserManagement() {
         <div className="bg-card rounded-xl border border-border p-6 shadow-sm mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-foreground">Bulk Create Students</h2>
-            <span className="text-xs text-muted-foreground">Format: ID,LastName,FirstName,Section,Birthday(YYYYMMDD)</span>
+            <span className="text-xs text-muted-foreground">Format: LRN,LastName,FirstName,Section,Birthday(YYYYMMDD)</span>
           </div>
           <p className="text-xs text-muted-foreground mb-3">
-            Username = ID number &middot; Password = <code>LastName.FirstName(Birthday)</code>
+            Username = LRN &middot; Password = <code>LastName.FirstName(Birthday)</code>
           </p>
           <textarea value={bulkData} onChange={e => setBulkData(e.target.value)}
-            placeholder={'2024001,DelaCruz,Juan,G7-A,20100115\n2024002,Santos,Maria,G7-A,20100220'}
+            placeholder={'123456789012,DelaCruz,Juan,G7-A,20100115\n123456789013,Santos,Maria,G7-A,20100220'}
             rows={8}
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 resize-y" />
           <div className="flex items-center justify-between mt-4">
@@ -376,12 +358,20 @@ export default function UserManagement() {
               </select>
             </div>
             {form.role === 'student' && (
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-semibold text-foreground mb-1">Section</label>
-                <input value={form.section} onChange={e => setForm(f => ({ ...f, section: e.target.value }))}
-                  placeholder="e.g., 11-A (Grace)"
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-semibold text-foreground mb-1">LRN</label>
+                  <input value={form.lrn} onChange={e => setForm(f => ({ ...f, lrn: e.target.value }))}
+                    placeholder="12-digit LRN"
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-foreground mb-1">Section</label>
+                  <input value={form.section} onChange={e => setForm(f => ({ ...f, section: e.target.value }))}
+                    placeholder="e.g., 11-A (Grace)"
+                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
+                </div>
+              </>
             )}
           </div>
           <button type="submit" disabled={saving}
@@ -394,17 +384,30 @@ export default function UserManagement() {
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-border flex items-center gap-3 bg-secondary/20">
           <Search size={14} className="text-muted-foreground shrink-0" />
-          <input type="text" placeholder="Search current page by name, email, or role..." value={search}
-            onChange={e => handleSearch(e.target.value)}
+          <input type="text" placeholder="Search by name, email, or role..." value={search}
+            onChange={e => setSearch(e.target.value)}
             className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground" />
-          <button onClick={() => loadPage(safePage)} className="text-xs text-[#1e3a5f] font-semibold hover:underline shrink-0">Refresh</button>
+          <div className="flex gap-1 bg-muted/50 rounded-lg p-0.5 border border-border">
+            {(['all', 'admin', 'teacher', 'student'] as const).map(t => (
+              <button key={t} onClick={() => setRoleTab(t)}
+                className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${roleTab === t ? 'bg-[#1e3a5f] text-white' : 'text-muted-foreground hover:text-foreground'}`}>
+                {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1) + 's'}
+              </button>
+            ))}
+          </div>
+          <button onClick={loadData} className="text-xs text-[#1e3a5f] font-semibold hover:underline shrink-0">Refresh</button>
         </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-muted-foreground border-b border-border bg-secondary/10">
-              <th className="text-left px-5 py-3 font-semibold">Name</th>
-              <th className="text-left px-4 py-3 font-semibold hidden sm:table-cell">Email</th>
-              <th className="px-4 py-3 font-semibold text-center">Role</th>
+              {(['name', 'email', 'role'] as const).map(k => (
+                <th key={k} onClick={() => handleSort(k)}
+                  className={`${k === 'email' ? 'text-left px-4 py-3 font-semibold hidden sm:table-cell' : k === 'role' ? 'px-4 py-3 font-semibold text-center' : 'text-left px-5 py-3 font-semibold'} cursor-pointer select-none hover:text-foreground`}>
+                  {k === 'name' ? 'Name' : k === 'email' ? 'Email' : 'Role'}
+                  {sortKey === k && <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
+                </th>
+              ))}
+              <th className="px-4 py-3 font-semibold text-left">LRN</th>
               <th className="px-4 py-3 font-semibold text-center">Actions</th>
             </tr>
           </thead>
@@ -421,6 +424,7 @@ export default function UserManagement() {
                     {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
                   </span>
                 </td>
+                <td className="px-4 py-3.5 text-xs text-muted-foreground font-mono">{u.lrn || '—'}</td>
                 <td className="px-4 py-3.5 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <button onClick={() => openEdit(u)}
@@ -438,14 +442,14 @@ export default function UserManagement() {
           </tbody>
         </table>
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
-          <span>Showing {filtered.length} of ~{totalEstimate} users</span>
+          <span>Showing {filtered.length} users</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => goToPage(safePage - 1)} disabled={safePage <= 1} aria-label="Previous page"
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} aria-label="Previous page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronLeft size={14} />
             </button>
-            <span className="font-medium">{safePage}</span>
-            <button onClick={() => goToPage(safePage + 1)} disabled={filtered.length < PAGE_SIZE} aria-label="Next page"
+            <span className="font-medium">{page}</span>
+            <button onClick={() => setPage(p => p + 1)} disabled={filtered.length < PAGE_SIZE} aria-label="Next page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronRight size={14} />
             </button>

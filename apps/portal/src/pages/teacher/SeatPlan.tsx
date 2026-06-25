@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { collection, query, where, onSnapshot, addDoc, getDocs, doc, setDoc, writeBatch, updateDoc } from 'firebase/firestore'
-import { db, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, getUser, getSeatPlan, saveSeatPlan, listAttendance, batchSaveAttendance, updateUser, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Class, type Subject, type SeatPlan, type ClassroomElement, type AttendanceRecord, type AttendanceStatus } from '@academix/shared'
 import { showToast } from '../../components/ui/toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Smartphone, Plus, GripHorizontal, Monitor, Hash } from 'lucide-react'
@@ -48,64 +47,75 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator as any).standalone === true
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-      }
-    )
-    return unsub
+    if (!user) return
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user.id])
 
   useEffect(() => {
-    if (!selectedClassId) return
-    const unsub = onSnapshot(
-      query(collection(db, 'seatPlans'), where('classId', '==', selectedClassId)),
-      (snap) => {
-        if (!snap.empty) {
-          const plan = { id: snap.docs[0].id, ...snap.docs[0].data() } as SeatPlan
-          setSeatPlan(plan); setElements(plan.elements || [])
-        } else {
-          setSeatPlan(null); setElements([])
-        }
+    if (!selectedClassId) { setSeatPlan(null); setElements([]); return }
+    let cancelled = false
+    async function load() {
+      const plan = await getSeatPlan(selectedClassId)
+      if (cancelled) return
+      if (plan) {
+        setSeatPlan(plan)
+        setElements(plan.elements || [])
+      } else {
+        setSeatPlan(null)
+        setElements([])
       }
-    )
-    return unsub
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   useEffect(() => {
     if (!selectedClassId) return
-    async function loadStudents() {
-      const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)))
-      const ids = enrollSnap.docs.map(d => d.data().studentId)
-      const userMap = await fetchUsersByIds(ids)
+    let cancelled = false
+    async function load() {
+      const enrollData = await listEnrollments({ classId: selectedClassId })
+      const ids = enrollData.map(e => e.studentId)
+      const users = (await Promise.all(ids.map(id => getUser(id)))).filter(Boolean) as AppUser[]
       const list = ids
         .map(id => {
-          const user = userMap.get(id)
-          return user ? { id, name: user.name, nfcUid: user.nfcUid } : null
+          const u = users.find(uu => uu.id === id)
+          return u ? { id: u.id, name: u.name, nfcUid: u.nfcUid } : null
         })
         .filter(Boolean) as { id: string; name: string; nfcUid?: string }[]
-      setStudents(list)
+      if (!cancelled) setStudents(list)
     }
-    loadStudents()
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   useEffect(() => {
     if (!selectedClassId) return
-    const unsub = onSnapshot(
-      query(collection(db, 'attendance'), where('classId', '==', selectedClassId), where('date', '==', today)),
-      (snap) => {
-        const map: Record<string, boolean> = {}
-        snap.docs.forEach(d => {
-          const data = d.data() as AttendanceRecord
-          map[data.studentId] = data.status === 'PRESENT'
-        })
-        setAttendanceMap(map)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const records = await listAttendance({ classId: selectedClassId, date: today })
+      const map: Record<string, boolean> = {}
+      records.forEach(r => {
+        map[r.studentId] = r.status === 'PRESENT'
+      })
+      if (!cancelled) setAttendanceMap(map)
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId, today])
 
   useEffect(() => {
@@ -200,11 +210,19 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   async function handleSaveLayout() {
     setSaving(true)
     try {
-      const data = { classId: selectedClassId, schoolId, canvasWidth: sanitizeNumber(CANVAS_W, 100, 5000), canvasHeight: sanitizeNumber(CANVAS_H, 100, 5000), elements, createdAt: seatPlan?.createdAt || Date.now(), updatedAt: Date.now() }
-      if (seatPlan) { await setDoc(doc(db, 'seatPlans', seatPlan.id), data) }
-      else { await addDoc(collection(db, 'seatPlans'), data) }
+      const planData: SeatPlan = {
+        id: seatPlan?.id || crypto.randomUUID(),
+        classId: selectedClassId,
+        schoolId,
+        canvasWidth: sanitizeNumber(CANVAS_W, 100, 5000),
+        canvasHeight: sanitizeNumber(CANVAS_H, 100, 5000),
+        elements,
+        createdAt: seatPlan?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      }
+      await saveSeatPlan(selectedClassId, planData)
       showToast('Seat plan saved!', 'success')
-      await createAuditLog(user.id, user.email, 'update', 'seatPlans', seatPlan?.id || '', `Saved seat plan layout for class ${selectedClassId}`)
+      await createAuditLog(user.id, user.email, 'update', 'seatPlans', planData.id, `Saved seat plan layout for class ${selectedClassId}`)
       setMode('view')
     } catch { showToast('Failed to save seat plan.', 'error') }
     finally { setSaving(false) }
@@ -226,11 +244,17 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   }, [selectedClassId, students, today, user.id, nfcSupported])
 
   async function markAttendance(studentId: string, remarks = 'NFC scan') {
-    const existingSnap = await getDocs(query(collection(db, 'attendance'), where('classId', '==', selectedClassId), where('date', '==', today), where('studentId', '==', studentId)))
-    const batch = writeBatch(db)
-    existingSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
-    batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks, recordedBy: user.id, schoolId } satisfies Omit<AttendanceRecord, 'id'>)
-    await batch.commit()
+    const existing = await listAttendance({ classId: selectedClassId, date: today, studentId })
+    const filtered = existing.filter(r => r.studentId !== studentId)
+    const records: AttendanceRecord[] = [
+      ...filtered,
+      {
+        id: crypto.randomUUID(),
+        studentId, classId: selectedClassId, date: today,
+        status: 'PRESENT', remarks, recordedBy: user.id, schoolId,
+      },
+    ]
+    await batchSaveAttendance(records)
   }
 
   async function processNfcUid(uid: string) {
@@ -243,10 +267,10 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
       return
     }
     if (selectedStudentId) {
-      await updateDoc(doc(db, 'users', selectedStudentId), { nfcUid: normalized })
+      await updateUser(selectedStudentId, { nfcUid: normalized })
       await markAttendance(selectedStudentId, 'NFC scan')
       const name = getStudentName(selectedStudentId)
-      showToast(`NFC registered to ${name} � PRESENT`, 'success')
+      showToast(`NFC registered to ${name} — PRESENT`, 'success')
       return
     }
     showToast(`Unknown NFC chip. Select a student first, then tap again.`, 'info')
@@ -269,11 +293,22 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
   }
 
   async function toggleAttendance(studentId: string, present: boolean) {
-    const existingSnap = await getDocs(query(collection(db, 'attendance'), where('classId', '==', selectedClassId), where('date', '==', today), where('studentId', '==', studentId)))
-    const batch = writeBatch(db)
-    existingSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
-    if (present) batch.set(doc(collection(db, 'attendance')), { studentId, classId: selectedClassId, date: today, status: 'PRESENT', remarks: 'Manual', recordedBy: user.id, schoolId } satisfies Omit<AttendanceRecord, 'id'>)
-    await batch.commit()
+    const records: AttendanceRecord[] = []
+    if (present) {
+      records.push({
+        id: crypto.randomUUID(),
+        studentId, classId: selectedClassId, date: today,
+        status: 'PRESENT', remarks: 'Manual', recordedBy: user.id, schoolId,
+      })
+    } else {
+      const existing = await listAttendance({ classId: selectedClassId, date: today, studentId })
+      if (existing.length > 0) {
+        records.push({ ...existing[0], status: 'ABSENT' as AttendanceStatus, recordedBy: user.id })
+      }
+    }
+    if (records.length) {
+      await batchSaveAttendance(records)
+    }
   }
 
   const selectedClass = classes.find(c => c.id === selectedClassId)
@@ -542,7 +577,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                 </div>
                 <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
                   <span>{students.length} enrolled</span>
-                  <span>{presentCount} present � {elements.filter(e => e.type === 'seat' && e.studentId).length - presentCount} absent � {elements.filter(e => e.type === 'seat' && !e.studentId).length} empty</span>
+                  <span>{presentCount} present — {elements.filter(e => e.type === 'seat' && e.studentId).length - presentCount} absent — {elements.filter(e => e.type === 'seat' && !e.studentId).length} empty</span>
                   <span>{today}</span>
                 </div>
               </div>
@@ -579,7 +614,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                             {seatId ? `Seat ${seatIndex + 1}` : 'No seat'}
                           </p>
                         </div>
-                        {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">??</span>}
+                        {s.nfcUid && <span className="text-[0.5rem] text-muted-foreground" title="NFC registered">📱</span>}
                       </button>
                     )
                   })}
@@ -589,7 +624,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
                 </div>
                 <div className="px-4 py-3 border-t border-border text-[0.6rem] text-muted-foreground text-center">
                   {selectedStudentId
-                    ? `Selected: ${getStudentName(selectedStudentId)} � tap NFC to register`
+                    ? `Selected: ${getStudentName(selectedStudentId)} — tap NFC to register`
                     : 'Tap a student to select for NFC'}
                 </div>
               </div>

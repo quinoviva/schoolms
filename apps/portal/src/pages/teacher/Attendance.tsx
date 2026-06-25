@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { collection, query, where, onSnapshot, getDocs, writeBatch, doc } from 'firebase/firestore'
-import { db, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, getUser, listAttendance, batchSaveAttendance, sanitizeString, createAuditLog, type AppUser, type Class, type Subject, type AttendanceStatus, type AttendanceRecord } from '@academix/shared'
 import { CheckCircle2 } from 'lucide-react'
 import Spinner from '../../components/ui/Spinner'
 import { showToast } from '../../components/ui/toast'
@@ -22,101 +21,107 @@ export default function Attendance({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-        setLoading(false)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   useEffect(() => {
     if (!selectedClassId) return
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)),
-      async (snap) => {
-        const studentIds = snap.docs.map(d => d.data().studentId)
-        const userMap = await fetchUsersByIds(studentIds)
-        const result = studentIds
-          .map(id => {
-            const user = userMap.get(id)
-            return user ? { id, name: user.name } : null
-          })
-          .filter(Boolean) as { id: string; name: string }[]
-        setStudents(result)
-        studentsRef.current = result
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const enrollData = await listEnrollments({ classId: selectedClassId })
+      const studentIds = enrollData.map(e => e.studentId)
+      const users = (await Promise.all(studentIds.map(id => getUser(id)))).filter(Boolean) as AppUser[]
+      const result = studentIds
+        .map(id => {
+          const u = users.find(uu => uu.id === id)
+          return u ? { id: u.id, name: u.name } : null
+        })
+        .filter(Boolean) as { id: string; name: string }[]
+      if (cancelled) return
+      setStudents(result)
+      studentsRef.current = result
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   useEffect(() => {
     if (!selectedClassId || !date) return
-    const unsub = onSnapshot(
-      query(
-        collection(db, 'attendance'),
-        where('classId', '==', selectedClassId),
-        where('date', '==', date),
-      ),
-      (snap) => {
-        const att: Record<string, AttendanceStatus> = {}
-        snap.docs.forEach(d => {
-          const data = d.data() as AttendanceRecord
-          att[data.studentId] = data.status
-        })
-        studentsRef.current.forEach(s => {
-          if (!att[s.id]) att[s.id] = 'PRESENT'
-        })
-        setAttendance(att)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const records = await listAttendance({ classId: selectedClassId, date })
+      const att: Record<string, AttendanceStatus> = {}
+      records.forEach(r => {
+        att[r.studentId] = r.status
+      })
+      studentsRef.current.forEach(s => {
+        if (!att[s.id]) att[s.id] = 'PRESENT'
+      })
+      if (!cancelled) setAttendance(att)
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId, date])
 
   async function handleSave() {
     if (!selectedClassId) return
     setSaving(true)
     try {
-      const batch = writeBatch(db)
-      const existingSnap = await getDocs(query(
-        collection(db, 'attendance'),
-        where('classId', '==', selectedClassId),
-        where('date', '==', date),
-      ))
+      const existing = await listAttendance({ classId: selectedClassId, date })
       const existingMap: Record<string, string> = {}
-      existingSnap.docs.forEach(d => {
-        const data = d.data() as AttendanceRecord
-        existingMap[data.studentId] = d.id
+      existing.forEach(r => {
+        existingMap[r.studentId] = r.id
       })
 
       const updated = new Set<string>()
+      const records: AttendanceRecord[] = []
       for (const [studentId, status] of Object.entries(attendance)) {
         const sanitizedStatus = sanitizeString(status, 10) as AttendanceStatus
         const existingId = existingMap[studentId]
-        if (existingId) {
-          batch.update(doc(db, 'attendance', existingId), { status: sanitizedStatus, recordedBy: user.id })
-          updated.add(existingId)
-        } else {
-          const ref = doc(collection(db, 'attendance'))
-          batch.set(ref, {
-            studentId, classId: selectedClassId, date, status: sanitizedStatus,
-            remarks: '', recordedBy: user.id, schoolId,
-          } satisfies Omit<AttendanceRecord, 'id'>)
-          updated.add(ref.id)
-        }
+        const id = existingId || crypto.randomUUID()
+        records.push({
+          id,
+          studentId,
+          classId: selectedClassId,
+          date,
+          status: sanitizedStatus,
+          recordedBy: user.id,
+          schoolId,
+        })
+        updated.add(id)
       }
 
       Object.entries(existingMap).forEach(([sid, docId]) => {
         if (!(sid in attendance)) {
-          batch.delete(doc(db, 'attendance', docId))
+          records.push({
+            id: docId,
+            studentId: sid,
+            classId: selectedClassId,
+            date,
+            status: 'PRESENT',
+            recordedBy: user.id,
+            schoolId,
+          })
         }
       })
 
-      await batch.commit()
+      await batchSaveAttendance(records)
       await createAuditLog(user.id, user.email, 'mark', 'attendance', selectedClassId, `Marked attendance for ${Object.keys(attendance).length} students on ${date}`)
       showToast('Attendance saved!', 'success')
     } catch (err) {

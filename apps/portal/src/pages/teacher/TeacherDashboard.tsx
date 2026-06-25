@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { School, Users, CheckCircle2, TrendingUp, Calendar } from 'lucide-react'
-import { db, mergeClassesWithSubjects, type AppUser, type Class, type Subject } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, type AppUser, type Class, type Subject } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
@@ -27,27 +26,35 @@ export default function TeacherDashboard({ user, onNav }: { user: AppUser; onNav
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
 
-        const classIds = result.map(c => c.id)
-        let studentCount = 0
-        if (classIds.length) {
-          const enrollSnaps = await Promise.all(classIds.map(cid => getDocs(query(collection(db, 'enrollments'), where('classId', '==', cid)))))
-          studentCount = [...new Set(enrollSnaps.flatMap(e => e.docs.map(d => d.data().studentId)))].length
-        }
-        setTotalStudents(studentCount)
-
-        const today = new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
-        const todayCls = result.filter(c => c.schedule.toUpperCase().includes(today))
-        setTodayClasses(todayCls.slice(0, 5))
-        setLoading(false)
+      const classIds = result.map(c => c.id)
+      let studentCount = 0
+      if (classIds.length) {
+        const enrollData = await Promise.all(classIds.map(cid => listEnrollments({ classId: cid })))
+        studentCount = [...new Set(enrollData.flatMap(e => e.map(ee => ee.studentId)))].length
       }
-    )
-    return unsub
+      if (cancelled) return
+      setTotalStudents(studentCount)
+
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
+      const todayCls = result.filter(c => c.schedule.toUpperCase().includes(today))
+      setTodayClasses(todayCls.slice(0, 5))
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   if (loading) return <Spinner />

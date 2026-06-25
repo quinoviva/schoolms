@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore'
-import { db, sanitizeString, type Section } from '@academix/shared'
+import { createSection, listSections, deleteSection as apiDeleteSection, updateSection as apiUpdateSection, getSchool,
+  sanitizeString, getGradesForLevels, type Section, type SchoolLevel } from '@academix/shared'
 import { Search, Plus, Pencil } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -21,25 +21,30 @@ export default function SectionManagement() {
   const [editTarget, setEditTarget] = useState<Section | null>(null)
   const [editForm, setEditForm] = useState({ name: '', gradeLevel: '' })
   const [editSaving, setEditSaving] = useState(false)
+  const [gradeOptions, setGradeOptions] = useState<string[]>([])
 
-  useEffect(() => {
+  async function loadData() {
     if (!schoolId) return
-    const unsub = onSnapshot(query(collection(db, 'sections'), where('schoolId', '==', schoolId)), snap => {
-      setSections(snap.docs.map(d => ({ id: d.id, ...d.data() } as Section)))
-      setLoading(false)
-    })
-    return unsub
-  }, [schoolId])
+    const [data, school] = await Promise.all([
+      listSections({ schoolId }),
+      getSchool(schoolId),
+    ])
+    setSections(data)
+    if (school?.levels) setGradeOptions(getGradesForLevels(school.levels as SchoolLevel[]))
+    setLoading(false)
+  }
+
+  useEffect(() => { loadData() }, [schoolId])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     try {
-      await addDoc(collection(db, 'sections'), {
-        name: sanitizeString(form.name, 50),
-        gradeLevel: sanitizeString(form.gradeLevel, 10),
-        schoolId,
-      })
+      const id = crypto.randomUUID()
+      await createSection({
+        id, name: sanitizeString(form.name, 50),
+        gradeLevel: sanitizeString(form.gradeLevel, 10), schoolId,
+      } as Section)
       setForm({ name: '', gradeLevel: '' })
       setShowForm(false)
       showToast('Section created successfully', 'success')
@@ -53,7 +58,7 @@ export default function SectionManagement() {
   async function handleDelete() {
     if (!deleteTarget) return
     try {
-      await deleteDoc(doc(db, 'sections', deleteTarget.id))
+      await apiDeleteSection(deleteTarget.id)
       showToast('Section deleted successfully', 'success')
     } catch {
       showToast('Failed to delete section', 'error')
@@ -70,7 +75,7 @@ export default function SectionManagement() {
     if (!editTarget) return
     setEditSaving(true)
     try {
-      await updateDoc(doc(db, 'sections', editTarget.id), {
+      await apiUpdateSection(editTarget.id, {
         name: sanitizeString(editForm.name, 50),
         gradeLevel: sanitizeString(editForm.gradeLevel, 10),
       })
@@ -122,9 +127,7 @@ export default function SectionManagement() {
               <select required value={form.gradeLevel} onChange={e => setForm(f => ({ ...f, gradeLevel: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
                 <option value="">-- Select grade level --</option>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
-                  <option key={g} value={`G${g}`}>Grade {g}</option>
-                ))}
+                {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
             </div>
           </div>
@@ -205,9 +208,7 @@ export default function SectionManagement() {
                 <select value={editForm.gradeLevel} onChange={e => setEditForm(f => ({ ...f, gradeLevel: e.target.value }))}
                   className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
                   <option value="">-- Select grade level --</option>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
-                    <option key={g} value={`G${g}`}>Grade {g}</option>
-                  ))}
+                  {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
               </div>
             </div>

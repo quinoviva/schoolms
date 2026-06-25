@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import ThemeToggle from '../components/ui/ThemeToggle'
-import { LogOut, LayoutDashboard, Building2, PlusCircle, Menu } from 'lucide-react'
+import { LogOut, LayoutDashboard, Building2, PlusCircle, Search, Menu, GraduationCap } from 'lucide-react'
 
 const NAV = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: Building2, label: 'Schools', path: '/schools' },
   { icon: PlusCircle, label: 'Create School', path: '/create-school' },
+  { icon: Search, label: 'Global Search', path: '/global-search' },
 ]
 
 function initials(name: string) {
@@ -30,44 +31,49 @@ export default function SuperAdminLayout({
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
-      <div className={`fixed inset-0 z-20 bg-black/40 lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`} onClick={() => setSidebarOpen(false)} />
-      <div className={`fixed lg:static inset-y-0 left-0 z-30 w-56 transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        <aside className="w-56 bg-[#0f1926] flex flex-col h-full shrink-0">
-          <div className="px-5 py-5 border-b border-white/10">
-            <p className="text-white font-bold text-sm">
-              ACADEMIX Super
-            </p>
-            <p className="text-white/40 text-[0.65rem]">Admin Console</p>
+      <div className={`fixed inset-0 z-20 bg-black/50 backdrop-blur-sm lg:hidden ${sidebarOpen ? 'block' : 'hidden'}`} onClick={() => setSidebarOpen(false)} />
+      <div className={`fixed lg:static inset-y-0 left-0 z-30 w-56 transform transition-transform duration-300 ease-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        <aside className="w-56 flex flex-col h-full shrink-0">
+          <div className="px-5 py-5 border-b border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-blue-700 flex items-center justify-center shrink-0 shadow-sm">
+                <GraduationCap size={16} className="text-white" />
+              </div>
+              <div>
+                <p className="text-white font-bold text-sm">Academix</p>
+                <p className="text-white/30 text-[0.55rem] tracking-wider uppercase">Super Admin</p>
+              </div>
+            </div>
           </div>
 
-          <div className="px-4 py-3.5 border-b border-white/10">
+          <div className="px-4 py-3.5 border-b border-white/5">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-[#8b6914]/35 flex items-center justify-center text-[#c4a32a] text-xs font-bold shrink-0">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent/70 to-blue-500/30 flex items-center justify-center text-blue-300 text-xs font-bold shrink-0">
                 {initials(appUser.name)}
               </div>
               <div className="min-w-0">
                 <p className="text-white text-xs font-semibold truncate">{appUser.name}</p>
-                <p className="text-white/35 text-[0.6rem] font-mono">{appUser.id}</p>
+                <p className="text-white/25 text-[0.55rem] font-mono truncate">{appUser.email}</p>
               </div>
             </div>
-            <span className="mt-2 inline-block text-[0.6rem] px-2 py-0.5 rounded-full bg-[#c4a32a]/30 text-[#c4a32a] font-semibold tracking-wide uppercase">Super Admin</span>
+            <span className="mt-2 inline-block text-[0.55rem] px-2 py-0.5 rounded-full bg-accent/15 text-blue-300 font-semibold tracking-wide uppercase border border-accent/10">Super Admin</span>
           </div>
 
           <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
             {NAV.map(({ icon: Icon, label, path: p }) => (
               <button key={p} onClick={() => handleNav(p)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
-                  path === p ? 'bg-white/15 text-white border-l-2 border-[#c4a32a] pl-[10px]' : 'text-white/55 hover:bg-white/8 hover:text-white/85'
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 text-left ${
+                  path === p ? 'bg-accent/15 text-white shadow-sm border-l-[3px] border-accent pl-[11px]' : 'text-white/45 hover:bg-white/5 hover:text-white/80'
                 }`}>
-                <Icon size={15} />
+                <Icon size={15} className={path === p ? 'text-accent' : ''} />
                 <span className="font-medium">{label}</span>
               </button>
             ))}
           </nav>
 
-          <div className="px-3 pb-4 pt-2 border-t border-white/10">
+          <div className="px-3 pb-4 pt-2 border-t border-white/5">
             <button onClick={logout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/40 hover:text-white/75 hover:bg-white/8 transition-all">
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/30 hover:text-white/70 hover:bg-white/5 transition-all duration-200">
               <LogOut size={15} />
               <span>Sign Out</span>
             </button>
@@ -76,12 +82,12 @@ export default function SuperAdminLayout({
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="sticky top-0 z-10 bg-background/96 backdrop-blur-sm border-b border-border px-4 sm:px-8 py-3 flex items-center justify-between">
+        <header className="sticky top-0 z-10 bg-background/90 backdrop-blur-md border-b border-border px-4 sm:px-8 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-1.5 rounded-lg hover:bg-muted transition-colors">
-              <Menu size={18} className="text-muted-foreground" />
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-secondary transition-colors">
+              <Menu size={18} className="text-foreground" />
             </button>
-            <p className="text-xs text-muted-foreground">ACADEMIX — Super Admin</p>
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-muted-foreground">Academix — Super Admin</p>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />

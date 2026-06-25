@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, limit, startAfter, where } from 'firebase/firestore'
-import { db, auth, sanitizeString, type Subject, type GradingComponent, type AppUser, type AcademicTerm } from '@academix/shared'
+import { listSubjects, createSubject, updateSubject, deleteSubject, getSchool,
+  sanitizeString, getGradesForLevels, DEPED_COMPONENT_WEIGHTS, MATATAG_SUBJECTS, getMatatagPresets,
+  generateSubjectCode, type Subject, type SchoolLevel, type GradingComponent, type MatatagSubjectPreset } from '@academix/shared'
 import { Plus, Pencil, Search, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { showToast } from '../components/ui/toast'
-import { createAuditLog } from '../utils/auditLog'
 import { useAuth } from '../contexts/AuthContext'
 
 const PAGE_SIZE = 20
@@ -14,101 +14,58 @@ export default function SubjectManagement() {
   const { appUser } = useAuth()
   const schoolId = appUser?.schoolId || ''
   const [subjects, setSubjects] = useState<(Subject & { id: string })[]>([])
-  const [teachers, setTeachers] = useState<AppUser[]>([])
-  const [terms, setTerms] = useState<AcademicTerm[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ code: '', title: '', teacherId: '', termId: '', gradeLevel: '' })
-  const [components, setComponents] = useState<GradingComponent[]>([{ id: crypto.randomUUID(), name: '', weight: 0 }])
+  const [form, setForm] = useState({ code: '', title: '', gradeLevel: '', subjectGroup: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   const [editTarget, setEditTarget] = useState<{ id: string } & Subject | null>(null)
-  const [editForm, setEditForm] = useState({ code: '', title: '', teacherId: '', termId: '', gradeLevel: '' })
-  const [editComponents, setEditComponents] = useState<GradingComponent[]>([])
+  const [editForm, setEditForm] = useState({ code: '', title: '', gradeLevel: '' })
   const [editSaving, setEditSaving] = useState(false)
 
   const [page, setPage] = useState(0)
-  const [cursors, setCursors] = useState<any[]>([null])
   const [hasMore, setHasMore] = useState(true)
+  const [gradeOptions, setGradeOptions] = useState<string[]>([])
 
   useEffect(() => {
     if (!schoolId) return
-    getDocs(query(collection(db, 'terms'), where('schoolId', '==', schoolId), orderBy('label')))
-      .then(snap => setTerms(snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm & { id: string }))))
-  }, [schoolId])
-
-  useEffect(() => {
-    if (!schoolId) return
-    const q = query(collection(db, 'users'), where('role', '==', 'teacher'), where('schoolId', '==', schoolId), orderBy('name'))
-    getDocs(q).then(snap => {
-      setTeachers(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppUser & { id: string })))
+    getSchool(schoolId).then(school => {
+      if (school?.levels) setGradeOptions(getGradesForLevels(school.levels as SchoolLevel[]))
     })
-  }, [schoolId])
-
-  useEffect(() => {
-    if (!schoolId) return
     loadPage(0)
   }, [schoolId])
 
-  function loadPage(idx: number) {
+  async function loadPage(idx: number) {
     setLoading(true)
-    const cursor = cursors[idx]
-    let q = query(collection(db, 'subjects'), where('schoolId', '==', schoolId), orderBy('code'), limit(PAGE_SIZE))
-    if (cursor) q = query(q, startAfter(cursor))
-    getDocs(q).then(snap => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject & { id: string }))
-      setSubjects(list)
-      setHasMore(snap.docs.length === PAGE_SIZE)
-      if (cursors.length <= idx + 1 && snap.docs.length === PAGE_SIZE) {
-        setCursors(prev => [...prev, snap.docs[snap.docs.length - 1]])
-      }
-      setPage(idx)
-      setLoading(false)
-    })
-  }
-
-  function addComponent() {
-    setComponents(prev => [...prev, { id: crypto.randomUUID(), name: '', weight: 0 }])
-  }
-
-  function updateComponent(id: string, field: 'name' | 'weight', value: string | number) {
-    setComponents(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-  }
-
-  function removeComponent(id: string) {
-    setComponents(prev => prev.filter(c => c.id !== id))
-  }
-
-  function validateComponents(list: GradingComponent[]) {
-    if (list.length === 0) return 'At least one grading component is required.'
-    if (list.some(c => !c.name.trim())) return 'All components must have a name.'
-    if (list.some(c => c.weight <= 0 || c.weight > 100)) return 'Each weight must be between 1 and 100.'
-    const total = list.reduce((s, c) => s + Number(c.weight), 0)
-    if (Math.abs(total - 100) > 0.01) return `Weights must sum to 100% (currently ${total}%).`
-    return ''
+    const all = await listSubjects({ schoolId })
+    setSubjects(all as (Subject & { id: string })[])
+    setHasMore(all.length === PAGE_SIZE)
+    setPage(idx)
+    setLoading(false)
   }
 
   function resetForm() {
-    setForm({ code: '', title: '', teacherId: '', termId: '', gradeLevel: '' })
-    setComponents([{ id: crypto.randomUUID(), name: '', weight: 0 }])
+    setForm({ code: '', title: '', gradeLevel: '', subjectGroup: '' })
     setError('')
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    const err = validateComponents(components)
-    if (err) { setError(err); return }
     setSaving(true); setError('')
     try {
-      await addDoc(collection(db, 'subjects'), {
-        code: sanitizeString(form.code, 20), title: sanitizeString(form.title, 100), teacherId: form.teacherId, termId: form.termId,
-        gradeLevel: sanitizeString(form.gradeLevel, 10),
-        gradingComponents: components, schoolId, createdAt: Date.now(),
-      })
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'create', 'subjects', '', 'Created subject: ' + form.code)
+      const id = crypto.randomUUID()
+      const preset = form.subjectGroup ? DEPED_COMPONENT_WEIGHTS[form.subjectGroup] : null
+      const gradingComponents: GradingComponent[] = preset
+        ? preset.map(c => ({ id: crypto.randomUUID(), name: c.label, weight: c.weight }))
+        : []
+      await createSubject({
+        id, code: sanitizeString(form.code, 20), title: sanitizeString(form.title, 100),
+        teacherId: '', termId: '', gradeLevel: sanitizeString(form.gradeLevel, 10),
+        gradingComponents, schoolId, createdAt: Date.now(),
+      } as Subject)
       resetForm(); setShowForm(false)
       loadPage(page)
       showToast('Subject created', 'success')
@@ -118,22 +75,19 @@ export default function SubjectManagement() {
 
   function openEdit(subj: Subject & { id: string }) {
     setEditTarget(subj)
-    setEditForm({ code: subj.code, title: subj.title, teacherId: subj.teacherId, termId: subj.termId || '', gradeLevel: subj.gradeLevel || '' })
-    setEditComponents(subj.gradingComponents.map(c => ({ ...c })))
+    setEditForm({ code: subj.code, title: subj.title, gradeLevel: subj.gradeLevel || '' })
   }
 
   async function handleEditSave() {
     if (!editTarget) return
-    const err = validateComponents(editComponents)
-    if (err) { showToast(err, 'error'); return }
     setEditSaving(true)
     try {
-      await updateDoc(doc(db, 'subjects', editTarget.id), {
-        code: sanitizeString(editForm.code, 20), title: sanitizeString(editForm.title, 100), teacherId: editForm.teacherId, termId: editForm.termId,
+      await updateSubject(editTarget.id, {
+        code: sanitizeString(editForm.code, 20), title: sanitizeString(editForm.title, 100),
+        teacherId: '', termId: '',
         gradeLevel: sanitizeString(editForm.gradeLevel, 10),
-        gradingComponents: editComponents,
+        gradingComponents: [],
       })
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'update', 'subjects', editTarget.id, 'Updated subject: ' + editForm.code)
       setEditTarget(null)
       loadPage(page)
       showToast('Subject updated', 'success')
@@ -144,27 +98,17 @@ export default function SubjectManagement() {
   async function handleDelete() {
     if (!deleteTarget) return
     try {
-      await deleteDoc(doc(db, 'subjects', deleteTarget.id))
-      await createAuditLog(auth.currentUser!.uid, auth.currentUser!.email, 'delete', 'subjects', deleteTarget.id, 'Deleted subject: ' + deleteTarget.title)
+      await deleteSubject(deleteTarget.id)
       loadPage(page)
       showToast('Subject deleted', 'success')
     } catch { showToast('Failed to delete subject', 'error') }
     setDeleteTarget(null)
   }
 
-  function getTeacherName(id: string) {
-    return teachers.find(t => t.id === id)?.name || 'Unassigned'
-  }
-
-  function getTermLabel(id: string) {
-    return terms.find(t => t.id === id)?.label || '—'
-  }
-
   const filtered = subjects.filter(s =>
     s.code.toLowerCase().includes(search.toLowerCase()) ||
     s.title.toLowerCase().includes(search.toLowerCase()) ||
-    (s.gradeLevel || '').toLowerCase().includes(search.toLowerCase()) ||
-    getTeacherName(s.teacherId).toLowerCase().includes(search.toLowerCase())
+    (s.gradeLevel || '').toLowerCase().includes(search.toLowerCase())
   )
 
   if (loading) return <Spinner text="Loading subjects..." />
@@ -190,13 +134,13 @@ export default function SubjectManagement() {
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">Subject Code</label>
               <input required value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
-                placeholder="e.g., MATH-101"
+                placeholder="e.g., MATH7"
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-foreground mb-1">Title</label>
               <input required value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                placeholder="e.g., Algebra I"
+                placeholder="e.g., Mathematics 7"
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
             </div>
             <div>
@@ -204,61 +148,63 @@ export default function SubjectManagement() {
               <select required value={form.gradeLevel} onChange={e => setForm(f => ({ ...f, gradeLevel: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
                 <option value="">-- Select grade level --</option>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
-                  <option key={g} value={`G${g}`}>Grade {g}</option>
+                {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            {form.gradeLevel && getMatatagPresets(form.gradeLevel).length > 0 && (
+              <div>
+                <label className="block text-sm font-semibold text-foreground mb-1">
+                  MATATAG Preset <span className="text-muted-foreground font-normal">(auto-fills fields)</span>
+                </label>
+                <div className="flex gap-2">
+                  <select onChange={e => {
+                    const preset = getMatatagPresets(form.gradeLevel).find(p => p.shortCode === e.target.value)
+                    if (preset) setForm(f => ({
+                      ...f,
+                      title: preset.title,
+                      code: generateSubjectCode(preset.shortCode, form.gradeLevel),
+                      subjectGroup: preset.subjectGroup,
+                    }))
+                  }} value="" className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
+                    <option value="">-- Select a MATATAG subject --</option>
+                    {getMatatagPresets(form.gradeLevel).map(p => (
+                      <option key={p.shortCode} value={p.shortCode}>{p.title} ({generateSubjectCode(p.shortCode, form.gradeLevel)})</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={async () => {
+                    const presets = getMatatagPresets(form.gradeLevel)
+                    for (const p of presets) {
+                      const id = crypto.randomUUID()
+                      const comps = (DEPED_COMPONENT_WEIGHTS[p.subjectGroup] || []).map(c => ({
+                        id: crypto.randomUUID(), name: c.label, weight: c.weight,
+                      }))
+                      await createSubject({
+                        id, code: generateSubjectCode(p.shortCode, form.gradeLevel),
+                        title: p.title, teacherId: '', termId: '',
+                        gradeLevel: form.gradeLevel, gradingComponents: comps, schoolId,
+                        createdAt: Date.now(),
+                      } as Subject)
+                    }
+                    showToast(`${presets.length} MATATAG subjects created!`, 'success')
+                    loadPage(page)
+                  }} className="shrink-0 px-3 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors">
+                    Create All
+                  </button>
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-1">
+                DepEd Subject Group <span className="text-muted-foreground font-normal">(sets grading weights)</span>
+              </label>
+              <select value={form.subjectGroup} onChange={e => setForm(f => ({ ...f, subjectGroup: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
+                <option value="">-- Custom weights (no components) --</option>
+                {Object.entries(DEPED_COMPONENT_WEIGHTS).map(([group, comps]) => (
+                  <option key={group} value={group}>{group} ({comps.map(c => `${c.label.split('(')[0].trim()} ${c.weight}%`).join(', ')})</option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1">Teacher</label>
-              <select required value={form.teacherId} onChange={e => setForm(f => ({ ...f, teacherId: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
-                <option value="">-- Select teacher --</option>
-                {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-1">Term</label>
-              <select required value={form.termId} onChange={e => setForm(f => ({ ...f, termId: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
-                <option value="">-- Select term --</option>
-                {terms.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-semibold text-foreground">Grading Components</label>
-              <button type="button" onClick={addComponent}
-                className="text-xs px-3 py-1.5 rounded-lg bg-[#1e3a5f]/10 text-[#1e3a5f] font-semibold hover:bg-[#1e3a5f]/20 transition-colors">
-                + Add Component
-              </button>
-            </div>
-            <p className="text-[0.6rem] text-muted-foreground mb-3">Weights must sum to 100%.</p>
-            <div className="space-y-2">
-              {components.map((c, i) => (
-                <div key={c.id} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-5">{i + 1}.</span>
-                  <input value={c.name} onChange={e => updateComponent(c.id, 'name', e.target.value)}
-                    placeholder="Component name"
-                    className="flex-1 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
-                  <div className="flex items-center gap-1">
-                    <input type="number" value={c.weight || ''} onChange={e => updateComponent(c.id, 'weight', Math.min(100, Math.max(0, Number(e.target.value))))}
-                      placeholder="%"
-                      className="w-20 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-center" />
-                    <span className="text-xs text-muted-foreground">%</span>
-                  </div>
-                  {components.length > 1 && (
-                    <button type="button" onClick={() => removeComponent(c.id)} aria-label="Remove component"
-                      className="text-red-400 hover:text-red-600 text-xs font-bold px-1">×</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Total: {components.reduce((s, c) => s + Number(c.weight), 0)}%
-            </p>
           </div>
 
           <button type="submit" disabled={saving}
@@ -282,8 +228,6 @@ export default function SubjectManagement() {
               <th className="text-left px-5 py-3 font-semibold">Code</th>
               <th className="text-left px-4 py-3 font-semibold">Title</th>
               <th className="text-left px-4 py-3 font-semibold hidden sm:table-cell">Grade</th>
-              <th className="text-left px-4 py-3 font-semibold hidden md:table-cell">Teacher</th>
-              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell">Term</th>
               <th className="px-4 py-3 font-semibold text-center">Actions</th>
             </tr>
           </thead>
@@ -292,9 +236,7 @@ export default function SubjectManagement() {
               <tr key={s.id} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                 <td className="px-5 py-3.5 font-mono text-xs font-semibold text-foreground">{s.code}</td>
                 <td className="px-4 py-3.5 font-semibold text-foreground">{s.title}</td>
-                <td className="px-4 py-3.5 text-xs hidden sm:table-cell"><span className="px-2 py-0.5 rounded bg-[#1e3a5f]/8 text-[#1e3a5f] font-semibold">{s.gradeLevel || '—'}</span></td>
-                <td className="px-4 py-3.5 text-muted-foreground text-xs hidden md:table-cell">{getTeacherName(s.teacherId)}</td>
-                <td className="px-4 py-3.5 text-muted-foreground text-xs hidden lg:table-cell">{getTermLabel(s.termId)}</td>
+                <td className="px-4 py-3.5 text-xs hidden sm:table-cell"><span className="px-2 py-0.5 rounded bg-[#1e3a5f]/8 text-[#1e3a5f] font-semibold">{s.gradeLevel || '\u2014'}</span></td>
                 <td className="px-4 py-3.5 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <button onClick={() => openEdit(s)}
@@ -342,7 +284,7 @@ export default function SubjectManagement() {
           <div className="bg-white rounded-xl p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-foreground text-lg mb-4">Edit Subject</h3>
             <div className="space-y-4">
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-foreground mb-1">Code</label>
                   <input value={editForm.code} onChange={e => setEditForm(f => ({ ...f, code: e.target.value }))}
@@ -358,53 +300,8 @@ export default function SubjectManagement() {
                   <select value={editForm.gradeLevel} onChange={e => setEditForm(f => ({ ...f, gradeLevel: e.target.value }))}
                     className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
                     <option value="">-- Select --</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map(g => (
-                      <option key={g} value={`G${g}`}>Grade {g}</option>
-                    ))}
+                    {gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-foreground mb-1">Teacher</label>
-                  <select value={editForm.teacherId} onChange={e => setEditForm(f => ({ ...f, teacherId: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
-                    <option value="">-- Select --</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-foreground mb-1">Term</label>
-                  <select value={editForm.termId} onChange={e => setEditForm(f => ({ ...f, termId: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25">
-                    <option value="">-- Select --</option>
-                    {terms.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="border-t border-border pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-semibold text-foreground">Grading Components</label>
-                  <button type="button" onClick={() => setEditComponents(prev => [...prev, { id: crypto.randomUUID(), name: '', weight: 0 }])}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-[#1e3a5f]/10 text-[#1e3a5f] font-semibold hover:bg-[#1e3a5f]/20 transition-colors">
-                    + Add
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {editComponents.map((c, i) => (
-                    <div key={c.id} className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground w-5">{i + 1}.</span>
-                      <input value={c.name} onChange={e => setEditComponents(prev => prev.map(p => p.id === c.id ? { ...p, name: e.target.value } : p))}
-                        placeholder="Component name"
-                        className="flex-1 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25" />
-                      <input type="number" value={c.weight || ''} onChange={e => setEditComponents(prev => prev.map(p => p.id === c.id ? { ...p, weight: Math.min(100, Math.max(0, Number(e.target.value))) } : p))}
-                        className="w-20 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 text-center" />
-                      <span className="text-xs text-muted-foreground">%</span>
-                      {editComponents.length > 1 && (
-                        <button onClick={() => setEditComponents(prev => prev.filter(p => p.id !== c.id))} aria-label="Remove edit component"
-                          className="text-red-400 hover:text-red-600 text-xs font-bold px-1">×</button>
-                      )}
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>

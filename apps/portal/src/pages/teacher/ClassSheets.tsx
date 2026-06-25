@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { Printer, FileText, CheckSquare, Table } from 'lucide-react'
-import { db, fetchUsersByIds, mergeClassesWithSubjects, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
+import { listClasses, listSubjects, listEnrollments, getUser, listAttendance, listGrades, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, computeFinalGrade, transmute, getGradeDescriptor } from '@academix/shared'
 import Spinner from '../../components/ui/Spinner'
 
 type SheetTab = 'roster' | 'attendance' | 'grades'
@@ -18,37 +17,44 @@ export default function ClassSheets({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!user) return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setClasses(result)
-        if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
-        setLoading(false)
-      }
-    )
-    return unsub
+    let cancelled = false
+    async function load() {
+      const classesData = await listClasses({ teacherId: user.id, schoolId })
+      const subjects = await listSubjects({ schoolId })
+      const result = classesData
+        .map(c => {
+          const subject = subjects.find(s => s.id === c.subjectId)
+          return subject ? { ...c, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (cancelled) return
+      setClasses(result)
+      if (!selectedClassId && result.length) setSelectedClassId(result[0].id)
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
   }, [user])
 
   useEffect(() => {
     if (!selectedClassId) return
     async function load() {
-      const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', selectedClassId)))
-      const studentIds = enrollSnap.docs.map(d => d.data().studentId)
-      const userMap = await fetchUsersByIds(studentIds)
+      const enrollData = await listEnrollments({ classId: selectedClassId })
+      const studentIds = enrollData.map(e => e.studentId)
+      const users = (await Promise.all(studentIds.map(id => getUser(id)))).filter(Boolean) as AppUser[]
       const list = studentIds
         .map(id => {
-          const user = userMap.get(id)
-          return user ? { id, name: user.name } : null
+          const u = users.find(uu => uu.id === id)
+          return u ? { id: u.id, name: u.name } : null
         })
         .filter(Boolean) as { id: string; name: string }[]
       setStudents(list)
 
-      const attSnap = await getDocs(query(collection(db, 'attendance'), where('classId', '==', selectedClassId)))
-      setAttendance(attSnap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord)))
+      const attRecords = await listAttendance({ classId: selectedClassId })
+      setAttendance(attRecords)
 
-      const grSnap = await getDocs(query(collection(db, 'grades'), where('classId', '==', selectedClassId)))
-      setScores(grSnap.docs.map(d => ({ id: d.id, ...d.data() } as GradeScore)))
+      const grRecords = await listGrades({ classId: selectedClassId })
+      setScores(grRecords)
     }
     load()
   }, [selectedClassId])

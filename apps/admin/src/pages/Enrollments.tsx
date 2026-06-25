@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
-import { collection, onSnapshot, addDoc, query, where, getDocs, deleteDoc, doc, writeBatch, orderBy, limit, startAfter } from 'firebase/firestore'
-import { db, fetchSubjectsByIds, fetchUsersByIds, type Class, type Subject, type AppUser } from '@academix/shared'
+import { listSubjects, listClasses, listUsers, listEnrollments, batchCreateEnrollments, deleteEnrollment, batchDeleteEnrollments,
+  listGrades, listAttendance, type Class, type Subject, type Enrollment } from '@academix/shared'
 import { Search, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -12,7 +12,7 @@ export default function Enrollments() {
   const schoolId = appUser?.schoolId || ''
   const [students, setStudents] = useState<{ id: string; name: string; section: string }[]>([])
   const [classes, setClasses] = useState<(Class & { subject: Subject })[]>([])
-  const [enrollments, setEnrollments] = useState<{ id?: string; studentId: string; classId: string }[]>([])
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [subjectsLoaded, setSubjectsLoaded] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState('')
@@ -21,44 +21,30 @@ export default function Enrollments() {
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; classId: string; label: string } | null>(null)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 50
-  const [pageCursors, setPageCursors] = useState<(any | null)[]>([null])
-  const [hasMore, setHasMore] = useState(true)
   const [studentSearch, setStudentSearch] = useState('')
   const [filteredStudents, setFilteredStudents] = useState<{ id: string; name: string; section: string }[]>([])
 
   useEffect(() => {
     if (!schoolId) return
-    const unsubSubjects = onSnapshot(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)), snap => {
-      setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject)))
-      setSubjectsLoaded(true)
-    })
-    return () => unsubSubjects()
-  }, [schoolId])
-
-  useEffect(() => {
-    if (!schoolId) return
-    const unsubClasses = onSnapshot(query(collection(db, 'classes'), where('schoolId', '==', schoolId)), snap => {
-      const classData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Class))
-      const clsData: (Class & { subject: Subject })[] = []
-      classData.forEach(cls => {
-        const subj = subjects.find(s => s.id === cls.subjectId)
-        if (subj) clsData.push({ ...cls, subject: subj })
+    async function load() {
+      const [subjData, clsData, stuData, enrollData] = await Promise.all([
+        listSubjects({ schoolId }),
+        listClasses({ schoolId }),
+        listUsers({ schoolId, role: 'student' }),
+        listEnrollments(),
+      ])
+      setSubjects(subjData)
+      setStudents(stuData.map(u => ({ id: u.id, name: u.name, section: u.section || '' })))
+      setEnrollments(enrollData)
+      const clsWithSubj: (Class & { subject: Subject })[] = []
+      clsData.forEach(cls => {
+        const subj = subjData.find(s => s.id === cls.subjectId)
+        if (subj) clsWithSubj.push({ ...cls, subject: subj })
       })
-      setClasses(clsData)
-    })
-    return unsubClasses
-  }, [subjects, schoolId])
-
-  useEffect(() => {
-    if (!schoolId) return
-    async function loadStudents() {
-      const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student'), where('schoolId', '==', schoolId), orderBy('name'), limit(500)))
-      setStudents(snap.docs.map(d => {
-        const u = d.data() as AppUser
-        return { id: d.id, name: u.name, section: u.section || '' }
-      }))
+      setClasses(clsWithSubj)
+      setSubjectsLoaded(true)
     }
-    loadStudents()
+    load()
   }, [schoolId])
 
   useEffect(() => {
@@ -67,31 +53,11 @@ export default function Enrollments() {
     setFilteredStudents(students.filter(s => s.name.toLowerCase().includes(q)))
   }, [studentSearch, students])
 
-  useEffect(() => {
-    if (!schoolId) return
-    async function loadEnrollments() {
-      setSubjectsLoaded(false)
-      const cursor = pageCursors[page - 1] || null
-      let q = query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), orderBy('studentId'), limit(PAGE_SIZE))
-      if (cursor) q = query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), orderBy('studentId'), startAfter(cursor), limit(PAGE_SIZE))
-      const snap = await getDocs(q)
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; studentId: string; classId: string }))
-      setEnrollments(data)
-      setHasMore(snap.docs.length === PAGE_SIZE)
-      const lastDoc = snap.docs[snap.docs.length - 1]
-      const newCursors = [...pageCursors]
-      newCursors[page] = lastDoc || null
-      setPageCursors(newCursors)
-      setSubjectsLoaded(true)
-    }
-    loadEnrollments()
-  }, [page, schoolId])
-
   const loading = !subjectsLoaded
 
   const classNameMap = useMemo(() => {
     const map: Record<string, string> = {}
-    classes.forEach(c => { map[c.id] = `${c.subject.code} — ${c.section}` })
+    classes.forEach(c => { map[c.id] = `${c.subject.code} \u2014 ${c.section}` })
     return map
   }, [classes])
 
@@ -111,12 +77,19 @@ export default function Enrollments() {
     })
   }, [enrollments, search, studentNameMap, classNameMap])
 
+  const paginatedEnrollments = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredEnrollments.slice(start, start + PAGE_SIZE)
+  }, [filteredEnrollments, page])
+
   async function handleEnroll() {
     if (!selectedStudent || !selectedClass) return
     const exists = enrollments.some(e => e.studentId === selectedStudent && e.classId === selectedClass)
     if (exists) { showToast('Student already enrolled in this class.', 'error'); return }
     try {
-      await addDoc(collection(db, 'enrollments'), { studentId: selectedStudent, classId: selectedClass, schoolId })
+      await batchCreateEnrollments([{
+        id: crypto.randomUUID(), studentId: selectedStudent, classId: selectedClass, schoolId,
+      } as Enrollment])
       showToast('Student enrolled successfully', 'success')
       setSelectedStudent('')
       setSelectedClass('')
@@ -131,22 +104,8 @@ export default function Enrollments() {
     try {
       const found = enrollments.find(e => e.studentId === studentId && e.classId === classId)
       if (found?.id) {
-        await deleteDoc(doc(db, 'enrollments', found.id))
-      } else {
-        const q = query(collection(db, 'enrollments'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))
-        const snap = await getDocs(q)
-        snap.docs.forEach(d => deleteDoc(doc(db, 'enrollments', d.id)))
+        await deleteEnrollment(found.id)
       }
-
-      const [gradesSnap, attSnap] = await Promise.all([
-        getDocs(query(collection(db, 'grades'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))),
-        getDocs(query(collection(db, 'attendance'), where('studentId', '==', studentId), where('classId', '==', classId), where('schoolId', '==', schoolId))),
-      ])
-      const batch = writeBatch(db)
-      gradesSnap.docs.forEach(d => batch.delete(doc(db, 'grades', d.id)))
-      attSnap.docs.forEach(d => batch.delete(doc(db, 'attendance', d.id)))
-      await batch.commit()
-
       showToast('Enrollment removed', 'success')
     } catch {
       showToast('Failed to remove enrollment', 'error')
@@ -186,7 +145,7 @@ export default function Enrollments() {
             <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)}
               className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25 min-w-[200px]">
               <option value="">Select class...</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>)}
+              {classes.map(c => <option key={c.id} value={c.id}>{c.subject.code} \u2014 {c.section}</option>)}
             </select>
           </div>
           <button onClick={handleEnroll} disabled={!selectedStudent || !selectedClass}
@@ -217,10 +176,10 @@ export default function Enrollments() {
             </tr>
           </thead>
           <tbody>
-            {filteredEnrollments.map((e, i) => {
+            {paginatedEnrollments.map((e, i) => {
               const student = students.find(s => s.id === e.studentId)
               const cls = classes.find(c => c.id === e.classId)
-              const label = `${student?.name || 'Unknown'} in ${cls ? `${cls.subject.code} — ${cls.section}` : 'Unknown'}`
+              const label = `${student?.name || 'Unknown'} in ${cls ? `${cls.subject.code} \u2014 ${cls.section}` : 'Unknown'}`
               return (
                 <tr key={`${e.studentId}-${e.classId}-${i}`} className="border-b border-border/50 hover:bg-secondary/15 transition-colors">
                   <td className="px-5 py-3.5">
@@ -228,7 +187,7 @@ export default function Enrollments() {
                     <p className="text-xs text-muted-foreground">{student?.section || ''}</p>
                   </td>
                   <td className="px-4 py-3.5 text-muted-foreground">
-                    {cls ? `${cls.subject.code} — ${cls.section}` : 'Unknown'}
+                    {cls ? `${cls.subject.code} \u2014 ${cls.section}` : 'Unknown'}
                   </td>
                   <td className="px-4 py-3.5 text-center">
                     <button onClick={() => setRemoveTarget({ studentId: e.studentId, classId: e.classId, label })}
@@ -242,14 +201,14 @@ export default function Enrollments() {
           </tbody>
         </table>
         <div className="px-5 py-3 bg-secondary/30 text-xs text-muted-foreground flex items-center justify-between">
-          <span>{filteredEnrollments.length} enrollments (page {page})</span>
+          <span>{filteredEnrollments.length} enrollments</span>
           <div className="flex items-center gap-2">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} aria-label="Previous page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronLeft size={14} />
             </button>
             <span className="font-medium">{page}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={!hasMore} aria-label="Next page"
+            <button onClick={() => setPage(p => p + 1)} disabled={paginatedEnrollments.length < PAGE_SIZE} aria-label="Next page"
               className="p-1 rounded hover:bg-secondary disabled:opacity-30 transition-colors">
               <ChevronRight size={14} />
             </button>

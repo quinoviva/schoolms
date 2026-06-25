@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { collection, onSnapshot, getDocs, query, where, getCountFromServer, limit } from 'firebase/firestore'
-import { db, type AppUser, type Class, type Subject, type GradeScore, type AttendanceRecord, type AcademicTerm } from '@academix/shared'
-import { GraduationCap, Users, School, Award, Layers, BookOpenCheck, CalendarDays, Loader2, RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { listUsers, listClasses, listSubjects, listSections, listEnrollments, listTerms,
+  type AppUser, type Class, type AcademicTerm } from '@academix/shared'
+import { GraduationCap, Users, School, Award, Layers, BookOpenCheck, CalendarDays, Loader2 } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -60,16 +60,6 @@ interface GradeLevelCount {
   count: number
 }
 
-interface AttendanceRate {
-  className: string
-  rate: number
-}
-
-interface SubjectAvg {
-  name: string
-  avg: number
-}
-
 export default function AdminDashboard() {
   const { appUser } = useAuth()
   const schoolId = appUser?.schoolId || ''
@@ -90,31 +80,26 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!schoolId) return
-    async function loadCounts() {
-      const [stuCount, tchCount, clsCount, subjCount, sectCount, enrollCount] = await Promise.all([
-        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'student'), where('schoolId', '==', schoolId))),
-        getCountFromServer(query(collection(db, 'users'), where('role', '==', 'teacher'), where('schoolId', '==', schoolId))),
-        getCountFromServer(query(collection(db, 'classes'), where('schoolId', '==', schoolId))),
-        getCountFromServer(query(collection(db, 'subjects'), where('schoolId', '==', schoolId))),
-        getCountFromServer(query(collection(db, 'sections'), where('schoolId', '==', schoolId))),
-        getCountFromServer(query(collection(db, 'enrollments'), where('schoolId', '==', schoolId))),
+    async function load() {
+      const [allUsers, allClasses, allSubjects, allSections, allEnrollments, allTerms] = await Promise.all([
+        listUsers({ schoolId }),
+        listClasses({ schoolId }),
+        listSubjects({ schoolId }),
+        listSections({ schoolId }),
+        listEnrollments(),
+        listTerms(schoolId),
       ])
-      setStudents(stuCount.data().count)
-      setTeachers(tchCount.data().count)
-      setClasses(clsCount.data().count)
-      setSubjects(subjCount.data().count)
-      setSections(sectCount.data().count)
-      setEnrollments(enrollCount.data().count)
+      setStudents(allUsers.filter(u => u.role === 'student').length)
+      setTeachers(allUsers.filter(u => u.role === 'teacher').length)
+      setClasses(allClasses.length)
+      setSubjects(allSubjects.length)
+      setSections(allSections.length)
+      setEnrollments(allEnrollments.length)
+      setTermList(allTerms)
+      setTerms(allTerms.length)
+      setActiveTerms(allTerms.filter(t => t.isActive).length)
     }
-    loadCounts()
-
-    const unsubTerms = onSnapshot(query(collection(db, 'terms'), where('schoolId', '==', schoolId)), snap => {
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AcademicTerm))
-      setTermList(all)
-      setTerms(all.length)
-      setActiveTerms(all.filter(t => t.isActive).length)
-    })
-    return () => unsubTerms()
+    load()
   }, [schoolId])
 
   const activeTermId = selectedTermId || termList.find(t => t.isActive)?.id || ''
@@ -122,33 +107,38 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!schoolId) return
     async function loadAnalytics() {
-      const classQuery = activeTermId
-        ? query(collection(db, 'classes'), where('schoolId', '==', schoolId), where('termId', '==', activeTermId))
-        : query(collection(db, 'classes'), where('schoolId', '==', schoolId))
-      const enrollQuery = activeTermId
-        ? query(collection(db, 'enrollments'), where('schoolId', '==', schoolId), where('termId', '==', activeTermId))
-        : query(collection(db, 'enrollments'), where('schoolId', '==', schoolId))
+      const allClasses = await listClasses({ schoolId, termId: activeTermId || undefined })
+      const allEnrollments = await listEnrollments()
+      const classEnrollments = activeTermId
+        ? allEnrollments.filter(e => e.termId === activeTermId)
+        : allEnrollments
 
-      const classSnap = await getDocs(classQuery)
-      const classList = classSnap.docs.map(d => ({ id: d.id, ...d.data() } as Class & { id: string }))
-
-      const enrollSnap = await getDocs(enrollQuery)
-      const enrollList = enrollSnap.docs.map(d => d.data() as { studentId: string; classId: string })
-
-      const uniqueStudentIds = [...new Set(enrollList.map(e => e.studentId))]
-      const uniqueTeacherIds = [...new Set(classList.map(c => c.teacherId))]
+      const uniqueTeacherIds = [...new Set(allClasses.map(c => c.teacherId))]
 
       const loadMap: Record<string, number> = {}
-      for (const c of classList) loadMap[c.teacherId] = (loadMap[c.teacherId] || 0) + 1
+      for (const c of allClasses) loadMap[c.teacherId] = (loadMap[c.teacherId] || 0) + 1
       const topTeachers = Object.entries(loadMap).sort((a, b) => b[1] - a[1]).slice(0, 20)
 
-      const teacherNamePromises = topTeachers.map(async ([id, count]) => {
-        const snap = await getDocs(query(collection(db, 'users'), where('__name__', '==', id), where('schoolId', '==', schoolId), limit(1)))
-        const name = snap.empty ? id.slice(0, 8) : snap.docs[0].data().name
-        return { name, count }
+      const allSubjects = await listSubjects({ schoolId })
+      const allUsers = await listUsers({ schoolId })
+      const teacherLoadList = topTeachers.map(([id, count]) => {
+        const user = allUsers.find(u => u.id === id)
+        return { name: user?.name || id.slice(0, 8), count }
       })
-      const teacherLoadList = await Promise.all(teacherNamePromises)
       setTeacherLoad(teacherLoadList)
+
+      const enrollByClass: Record<string, number> = {}
+      for (const e of classEnrollments) {
+        enrollByClass[e.classId] = (enrollByClass[e.classId] || 0) + 1
+      }
+
+      const gradeLevelsMap: Record<string, number> = {}
+      for (const cls of allClasses) {
+        const subject = allSubjects.find(s => s.id === cls.subjectId)
+        const level = subject?.gradeLevel || 'Unknown'
+        gradeLevelsMap[level] = (gradeLevelsMap[level] || 0) + (enrollByClass[cls.id] || 0)
+      }
+      setGradeLevels(Object.entries(gradeLevelsMap).map(([level, count]) => ({ level, count })))
 
       setAnalyticsLoaded(true)
     }
@@ -159,7 +149,7 @@ export default function AdminDashboard() {
 
   if (loading) return <Spinner text="Loading dashboard..." />
 
-  const COLORS = ['#1e3a5f', '#4a7db5', '#8b6914', '#c4a32a', '#2d5a8e', '#6b8c42', '#b5651d', '#5a7a9a']
+  const COLORS = ['#1a365d', '#3b82f6', '#60a5fa', '#2563eb', '#93c5fd', '#1d4ed8', '#0f172a', '#475569']
 
   return (
     <div>

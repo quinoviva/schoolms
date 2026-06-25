@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
-import { collection, query, where, onSnapshot, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { BookOpen, CheckCircle2, Clock, FileText, Upload, Download, Paperclip } from 'lucide-react'
-import { db, storage, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, sanitizeNumber, createAuditLog, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@academix/shared'
+import { storage, listClasses, listAssignments, listEnrollments, listSubmissions, listSubjects, listUsers, createAssignment, createSubmission, gradeSubmission, sanitizeString, sanitizeNumber, type AppUser, type Assignment, type Submission, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Assignments({ user }: { user: AppUser }) {
   const schoolId = user.schoolId || ''
@@ -32,41 +32,51 @@ export default function Assignments({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (user.role !== 'teacher') return
-    const unsub = onSnapshot(
-      query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-        setTeacherClasses(result)
-      }
-    )
-    return unsub
-  }, [user])
+    let cancelled = false
+    async function load() {
+      const classData = await listClasses({ schoolId, teacherId: user.id })
+      const subjectIds = [...new Set(classData.map(c => c.subjectId))]
+      const subjects = await listSubjects({ schoolId })
+      const subjectMap = new Map(subjects.map(s => [s.id, s]))
+      const merged = classData
+        .map(cls => {
+          const subject = subjectMap.get(cls.subjectId)
+          return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (!cancelled) setTeacherClasses(merged)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [user, schoolId])
 
   useEffect(() => {
     if (!selectedClassId) { setAssignments([]); setLoading(false); return }
-    setLoading(true)
-    const unsub = onSnapshot(
-      query(collection(db, 'assignments'), where('classId', '==', selectedClassId)),
-      (snap) => {
-        setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assignment)))
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      const list = await listAssignments({ classId: selectedClassId })
+      if (!cancelled) {
+        setAssignments(list)
         setLoading(false)
       }
-    )
-    return unsub
+    }
+    load()
+    return () => { cancelled = true }
   }, [selectedClassId])
 
   async function loadSubmissionDetails(assignment: Assignment) {
     setSelectedAssignment(assignment)
     setLoadingDetails(true)
-    const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('classId', '==', assignment.classId)))
-    const enrollments = enrollSnap.docs.map(d => d.data() as Enrollment)
+    const enrollments = await listEnrollments({ classId: assignment.classId })
     const studentIds = enrollments.map(e => e.studentId)
 
-    const [userMap, subSnap] = await Promise.all([
-      fetchUsersByIds(studentIds),
-      getDocs(query(collection(db, 'submissions'), where('assignmentId', '==', assignment.id))),
+    const [users, submissions] = await Promise.all([
+      listUsers({ schoolId }),
+      listSubmissions({ assignmentId: assignment.id }),
     ])
-    const subMap = new Map<string, Submission>(subSnap.docs.map(d => [d.data().studentId, { id: d.id, ...d.data() } as Submission]))
+    const userMap = new Map(users.map(u => [u.id, u]))
+    const subMap = new Map<string, Submission>(submissions.map(s => [s.studentId, s]))
 
     const students = enrollments.map(e => ({
       studentId: e.studentId,
@@ -82,7 +92,8 @@ export default function Assignments({ user }: { user: AppUser }) {
     if (!title.trim() || !description.trim() || !dueDate || !maxScore || !selectedClassId) return
     setSaving(true)
     try {
-      await addDoc(collection(db, 'assignments'), {
+      await createAssignment({
+        id: crypto.randomUUID(),
         classId: selectedClassId,
         teacherId: user.id,
         title: sanitizeString(title, 200),
@@ -91,14 +102,13 @@ export default function Assignments({ user }: { user: AppUser }) {
         maxScore: sanitizeNumber(maxScore, 1, 1000),
         schoolId,
         createdAt: Date.now(),
-      } satisfies Omit<Assignment, 'id'>)
+      })
       setTitle('')
       setDescription('')
       setDueDate('')
       setMaxScore('')
       setShowForm(false)
       showToast('Assignment created!', 'success')
-      await createAuditLog(user.id, user.email, 'create', 'assignments', selectedClassId, `Created assignment: ${sanitizeString(title, 100)}`)
     } catch {
       showToast('Failed to create assignment.', 'error')
     } finally {
@@ -118,7 +128,8 @@ export default function Assignments({ user }: { user: AppUser }) {
         fileUrl = await getDownloadURL(storageRef)
         fileName = file.name
       }
-      await addDoc(collection(db, 'submissions'), {
+      await createSubmission({
+        id: crypto.randomUUID(),
         assignmentId,
         studentId: user.id,
         fileUrl: sanitizeString(fileUrl, 500),
@@ -127,7 +138,7 @@ export default function Assignments({ user }: { user: AppUser }) {
         schoolId,
         submittedAt: Date.now(),
         gradedAt: null,
-      } satisfies Omit<Submission, 'id'>)
+      })
       setSubmissionText('')
       setSubmittingId(null)
       showToast('Assignment submitted!', 'success')
@@ -139,9 +150,8 @@ export default function Assignments({ user }: { user: AppUser }) {
 
   async function handleGradeSubmission(submissionId: string, score: number) {
     try {
-      await updateDoc(doc(db, 'submissions', submissionId), { score: sanitizeNumber(score, 0, 1000), gradedAt: Date.now() })
+      await gradeSubmission(submissionId, sanitizeNumber(score, 0, 1000))
       showToast('Submission graded!', 'success')
-      await createAuditLog(user.id, user.email, 'grade', 'submissions', submissionId, `Graded submission with score ${sanitizeNumber(score, 0, 1000)}`)
     } catch {
       showToast('Failed to grade submission.', 'error')
     }
@@ -397,26 +407,34 @@ function StudentClassSelector({ user, selectedClassId, onSelect }: { user: AppUs
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-      async (snap) => {
-        const classIds = snap.docs.map(d => (d.data() as Enrollment).classId)
-        if (!classIds.length) { setClasses([]); setLoading(false); return }
-        const classesMap = await fetchDocsByIds<Class>('classes', classIds)
-        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
-        const subjectsMap = await fetchSubjectsByIds(subjectIds)
-        const result = [...classesMap.values()]
-          .map(cls => {
-            const subject = subjectsMap.get(cls.subjectId)
-            return subject ? { id: cls.id!, label: `${subject.code} � ${cls.section}` } : null
-          })
-          .filter(Boolean) as { id: string; label: string }[]
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      const enrollments = await listEnrollments({ studentId: user.id })
+      const classIds = enrollments.map(e => e.classId)
+      if (!classIds.length) {
+        if (!cancelled) { setClasses([]); setLoading(false) }
+        return
+      }
+      const allClasses = await listClasses({ schoolId })
+      const filtered = allClasses.filter(c => classIds.includes(c.id))
+      const subjectIds = [...new Set(filtered.map(c => c.subjectId))]
+      const allSubjects = await listSubjects({ schoolId })
+      const subjectMap = new Map(allSubjects.map(s => [s.id, s]))
+      const result = filtered
+        .map(cls => {
+          const subject = subjectMap.get(cls.subjectId)
+          return subject ? { id: cls.id, label: `${subject.code} — ${cls.section}` } : null
+        })
+        .filter(Boolean) as { id: string; label: string }[]
+      if (!cancelled) {
         setClasses(result)
         setLoading(false)
       }
-    )
-    return unsub
-  }, [user])
+    }
+    load()
+    return () => { cancelled = true }
+  }, [user, schoolId])
 
   if (loading) return <Spinner text="Loading classes..." />
 
@@ -448,15 +466,17 @@ function StudentAssignmentCard({ assignment, user, submittingId, submissionText,
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setLoadingSub(true)
-    const unsub = onSnapshot(
-      query(collection(db, 'submissions'), where('assignmentId', '==', assignment.id), where('studentId', '==', user.id)),
-      (snap) => {
-        setSubmission(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() } as Submission)
+    let cancelled = false
+    async function load() {
+      setLoadingSub(true)
+      const subs = await listSubmissions({ assignmentId: assignment.id, studentId: user.id })
+      if (!cancelled) {
+        setSubmission(subs[0] || null)
         setLoadingSub(false)
       }
-    )
-    return unsub
+    }
+    load()
+    return () => { cancelled = true }
   }, [assignment.id, user.id])
 
   const isOverdue = new Date(assignment.dueDate) < new Date()

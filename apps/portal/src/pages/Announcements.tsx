@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { collection, query, where, onSnapshot, addDoc, orderBy, getDocs } from 'firebase/firestore'
 import { Megaphone, Plus, Send, X } from 'lucide-react'
-import { db, fetchDocsByIds, fetchSubjectsByIds, fetchUsersByIds, mergeClassesWithSubjects, sanitizeString, createAuditLog, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@academix/shared'
+import { listClasses, listAnnouncements, listEnrollments, listSubjects, listUsers, createAnnouncement, sanitizeString, type AppUser, type Announcement, type Class, type Subject, type Enrollment } from '@academix/shared'
 import Spinner from '../components/ui/Spinner'
 import { showToast } from '../components/ui/toast'
+import { useAuth } from '../contexts/AuthContext'
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts
@@ -29,93 +29,91 @@ export default function Announcements({ user }: { user: AppUser }) {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
     async function init() {
       if (user.role !== 'teacher') return
-      const snap = await getDocs(query(collection(db, 'classes'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId)))
-      const result = await mergeClassesWithSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)))
-      setTeacherClasses(result)
+      const classData = await listClasses({ schoolId, teacherId: user.id })
+      const subjectIds = [...new Set(classData.map(c => c.subjectId))]
+      const subjects = await listSubjects({ schoolId })
+      const subjectMap = new Map(subjects.map(s => [s.id, s]))
+      const merged = classData
+        .map(cls => {
+          const subject = subjectMap.get(cls.subjectId)
+          return subject ? { ...cls, subject } as Class & { subject: Subject } : null
+        })
+        .filter(Boolean) as (Class & { subject: Subject })[]
+      if (!cancelled) setTeacherClasses(merged)
     }
     init()
-  }, [user])
+    return () => { cancelled = true }
+  }, [user, schoolId])
 
   useEffect(() => {
-    if (user.role === 'teacher') {
-      const unsub = onSnapshot(
-        query(collection(db, 'announcements'), where('teacherId', '==', user.id), where('schoolId', '==', schoolId), orderBy('createdAt', 'desc')),
-        (snap) => {
-          const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement))
-          setAnnouncements(list)
-          setLoading(false)
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        let annList: Announcement[] = []
+        if (user.role === 'teacher') {
+          annList = await listAnnouncements({ teacherId: user.id })
+        } else {
+          const enrollments = await listEnrollments({ studentId: user.id })
+          const classIds = enrollments.map(e => e.classId)
+          if (classIds.length) {
+            const annArrays = await Promise.all(classIds.map(cid => listAnnouncements({ classId: cid })))
+            annList = annArrays.flat().sort((a, b) => b.createdAt - a.createdAt)
+          }
         }
-      )
-      return unsub
-    } else {
-      return onSnapshot(
-        query(collection(db, 'enrollments'), where('studentId', '==', user.id), where('schoolId', '==', schoolId)),
-        (enrollSnap) => {
-          const classIds = enrollSnap.docs.map(d => (d.data() as Enrollment).classId)
-          setClassIdsSnapshot(classIds)
+        if (!annList.length) {
+          if (!cancelled) { setAnnouncements([]); setLoading(false) }
+          return
         }
-      )
-    }
-  }, [user])
-
-  const [classIdsSnapshot, setClassIdsSnapshot] = useState<string[]>([])
-
-  useEffect(() => {
-    if (classIdsSnapshot.length === 0) {
-      setAnnouncements([])
-      setLoading(false)
-      return
-    }
-    const batchSize = 10
-    const classIds = classIdsSnapshot.slice(0, batchSize)
-    const unsub = onSnapshot(
-      query(collection(db, 'announcements'), where('classId', 'in', classIds), orderBy('createdAt', 'desc')),
-      async (annSnap) => {
-        const annList = annSnap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement))
         const teacherIds = [...new Set(annList.map(a => a.teacherId))]
         const classIds = [...new Set(annList.map(a => a.classId))]
-        const [userMap, classesMap] = await Promise.all([
-          fetchUsersByIds(teacherIds),
-          fetchDocsByIds<Class>('classes', classIds),
+        const [users, classes, subjects] = await Promise.all([
+          listUsers({ schoolId }),
+          listClasses({ schoolId }),
+          listSubjects({ schoolId }),
         ])
-        const subjectIds = [...new Set([...classesMap.values()].map(c => c.subjectId))]
-        const subjectsMap = await fetchSubjectsByIds(subjectIds)
+        const userMap = new Map(users.map(u => [u.id, u]))
+        const classMap = new Map(classes.map(c => [c.id, c]))
+        const subjectMap = new Map(subjects.map(s => [s.id, s]))
         const list = annList.map(a => ({
           ...a,
           teacherName: userMap.get(a.teacherId)?.name || '',
           className: (() => {
-            const cls = classesMap.get(a.classId)
-            return cls ? (subjectsMap.get(cls.subjectId)?.code || '') : ''
+            const cls = classMap.get(a.classId)
+            return cls ? (subjectMap.get(cls.subjectId)?.code || '') : ''
           })(),
         }))
-        setAnnouncements(list)
-        setLoading(false)
+        if (!cancelled) setAnnouncements(list)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-    )
-    return unsub
-  }, [classIdsSnapshot])
+    }
+    load()
+    return () => { cancelled = true }
+  }, [user, schoolId])
 
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim() || !content.trim() || !classId) return
     setSaving(true)
     try {
-      await addDoc(collection(db, 'announcements'), {
+      await createAnnouncement({
+        id: crypto.randomUUID(),
         classId,
         teacherId: user.id,
         title: sanitizeString(title, 200),
         content: sanitizeString(content, 5000),
         schoolId,
         createdAt: Date.now(),
-      } satisfies Omit<Announcement, 'id'>)
+      })
       setTitle('')
       setContent('')
       setClassId('')
       setShowForm(false)
       showToast('Announcement posted!', 'success')
-      await createAuditLog(user.id, user.email, 'create', 'announcements', classId, `Posted announcement: ${sanitizeString(title, 100)}`)
     } catch {
       showToast('Failed to post announcement.', 'error')
     } finally {
