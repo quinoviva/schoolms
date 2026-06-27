@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import db from '../database.js'
-import { verifyToken, type AuthRequest } from '../middleware/auth.js'
+import { verifyToken, requireRole, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 router.use(verifyToken)
@@ -12,8 +12,12 @@ router.get('/', async (req, res) => {
   res.json(rows)
 })
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('admin', 'super_admin'), async (req, res) => {
   const { id, label, semester, schoolId } = req.body
+  if (!id || !label || !semester) {
+    res.status(400).json({ error: 'id, label, and semester are required' })
+    return
+  }
   await db('terms').insert({
     id, label, semester, school_id: schoolId,
     is_active: false, is_archived: false,
@@ -23,12 +27,15 @@ router.post('/', async (req, res) => {
   res.status(201).json(row)
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('admin', 'super_admin'), async (req, res) => {
+  const allowed = ['label', 'semester', 'isActive', 'isArchived']
   const updates: Record<string, unknown> = {}
-  if (req.body.label !== undefined) updates.label = req.body.label
-  if (req.body.semester !== undefined) updates.semester = req.body.semester
-  if (req.body.isActive !== undefined) updates.is_active = req.body.isActive
-  if (req.body.isArchived !== undefined) updates.is_archived = req.body.isArchived
+  for (const f of allowed) {
+    if (req.body[f] !== undefined) {
+      const dbField = f.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`)
+      updates[dbField] = req.body[f]
+    }
+  }
   await db('terms').where('id', req.params.id).update(updates)
   const row = await db('terms').where('id', req.params.id).first()
   res.json(row)

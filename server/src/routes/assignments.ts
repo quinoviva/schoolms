@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import db from '../database.js'
-import { verifyToken, type AuthRequest } from '../middleware/auth.js'
+import { verifyToken, requireRole, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 router.use(verifyToken)
@@ -13,29 +13,37 @@ router.get('/', async (req, res) => {
   res.json(rows)
 })
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
   const { id, classId, teacherId, title, description, dueDate, maxScore, schoolId } = req.body
+  if (!id || !title) {
+    res.status(400).json({ error: 'id and title are required' })
+    return
+  }
   await db('assignments').insert({
     id, class_id: classId, teacher_id: teacherId,
-    title, description, due_date: dueDate, max_score: maxScore,
-    school_id: schoolId, created_at: Date.now(),
+    title, description: description || '', due_date: dueDate || '',
+    max_score: maxScore || 100, school_id: schoolId, created_at: Date.now(),
   })
   const row = await db('assignments').where('id', id).first()
   res.status(201).json(row)
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
+  const allowed = ['title', 'description', 'dueDate', 'maxScore']
   const updates: Record<string, unknown> = {}
-  if (req.body.title !== undefined) updates.title = req.body.title
-  if (req.body.description !== undefined) updates.description = req.body.description
-  if (req.body.dueDate !== undefined) updates.due_date = req.body.dueDate
-  if (req.body.maxScore !== undefined) updates.max_score = req.body.maxScore
+  for (const f of allowed) {
+    if (req.body[f] !== undefined) {
+      const dbField = f.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`)
+      updates[dbField] = req.body[f]
+    }
+  }
   await db('assignments').where('id', req.params.id).update(updates)
   const row = await db('assignments').where('id', req.params.id).first()
   res.json(row)
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
+  await db('submissions').where('assignment_id', req.params.id).del()
   await db('assignments').where('id', req.params.id).del()
   res.json({ success: true })
 })

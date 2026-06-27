@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import db from '../database.js'
-import { verifyToken, type AuthRequest } from '../middleware/auth.js'
+import { verifyToken, requireRole, type AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 router.use(verifyToken)
@@ -13,8 +13,12 @@ router.get('/', async (req, res) => {
   res.json(rows)
 })
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
   const { id, classId, teacherId, title, content, schoolId } = req.body
+  if (!id || !title || !content) {
+    res.status(400).json({ error: 'id, title, and content are required' })
+    return
+  }
   await db('announcements').insert({
     id, class_id: classId, teacher_id: teacherId,
     title, content, school_id: schoolId, created_at: Date.now(),
