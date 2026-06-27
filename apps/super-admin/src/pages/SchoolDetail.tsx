@@ -13,6 +13,7 @@ import {
   SCHOOL_LEVELS, getGradesForLevels, DEPED_COMPONENT_WEIGHTS, MATATAG_SUBJECTS, getMatatagPresets, generateSubjectCode,
 } from '@academix/shared'
 import { showToast } from '../components/ui/toast'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { ArrowLeft, Users, BookOpen, CalendarDays, Layers, GraduationCap, Building2, Plus, Pencil, Trash2, Save, X, RefreshCw, Link2, Unlink, FileDown, Upload, History } from 'lucide-react'
 
 type Tab = 'overview' | 'users' | 'subjects' | 'terms' | 'sections' | 'classes' | 'enrollments' | 'audit'
@@ -231,6 +232,7 @@ function UsersView({ schoolId }: { schoolId: string }) {
   const [roleTab, setRoleTab] = useState<'all' | 'admin' | 'teacher' | 'student'>('all')
   const [sortKey, setSortKey] = useState<'name' | 'email' | 'role'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null)
 
   function load() {
     setLoading(true)
@@ -263,7 +265,7 @@ function UsersView({ schoolId }: { schoolId: string }) {
     setSaving(false); setShowForm(false); setEdit(null); setForm({ email: '', name: '', role: 'student', section: '' }); load()
   }
 
-  async function handleDelete(id: string) { if (!confirm('Delete this user?')) return; await deleteUser(id); load() }
+  function handleDelete(id: string) { setConfirmDelete({ id }) }
 
   function startEdit(u: AppUser & { id: string }) {
     setEdit({ id: u.id }); setForm({ email: u.email || '', name: u.name || '', role: u.role || 'student', section: u.section || '' }); setShowForm(true)
@@ -282,7 +284,7 @@ function UsersView({ schoolId }: { schoolId: string }) {
       created++
     }
     setBulkText(''); setShowBulk(false); load()
-    alert(`Created ${created} student(s)`)
+    showToast(`Created ${created} student(s)`, 'success')
   }
 
   function exportCsv() {
@@ -403,6 +405,15 @@ function UsersView({ schoolId }: { schoolId: string }) {
           </tbody>
         </table>
       </div>
+      {confirmDelete && (
+        <ConfirmDialog
+          open={true}
+          title="Delete User"
+          message="Delete this user? This action cannot be undone."
+          onConfirm={async () => { await deleteUser(confirmDelete.id); setConfirmDelete(null); load() }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }
@@ -415,6 +426,7 @@ function SubjectsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
   const [edit, setEdit] = useState<string | null>(null)
   const [form, setForm] = useState({ code: '', title: '', gradeLevel: '', subjectGroup: '' })
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null)
 
   function load() {
     setLoading(true)
@@ -437,7 +449,7 @@ function SubjectsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
     setSaving(false); setShowForm(false); setEdit(null); setForm({ code: '', title: '', gradeLevel: '', subjectGroup: '' }); load()
   }
 
-  async function handleDelete(id: string) { if (confirm('Delete this subject?')) { await deleteSubject(id); load() } }
+  function handleDelete(id: string) { setConfirmDelete({ id }) }
 
   function startEdit(s: Subject & { id: string }) {
     setEdit(s.id); setForm({ code: s.code, title: s.title, gradeLevel: s.gradeLevel || '', subjectGroup: '' }); setShowForm(true)
@@ -556,6 +568,15 @@ function SubjectsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
           </tbody>
         </table>
       </div>
+      {confirmDelete && (
+        <ConfirmDialog
+          open={true}
+          title="Delete Subject"
+          message="Delete this subject? This action cannot be undone."
+          onConfirm={async () => { await deleteSubject(confirmDelete.id); setConfirmDelete(null); load() }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }
@@ -639,6 +660,7 @@ function SectionsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
   const [edit, setEdit] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', gradeLevel: '' })
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null)
 
   function load() { setLoading(true); listSections({ schoolId }).then(d => { setSections(d); setLoading(false) }) }
   useEffect(load, [schoolId])
@@ -649,7 +671,7 @@ function SectionsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
     setSaving(false); setShowForm(false); setEdit(null); setForm({ name: '', gradeLevel: '' }); load()
   }
 
-  async function handleDelete(id: string) { if (confirm('Delete this section?')) { await deleteSection(id); load() } }
+  function handleDelete(id: string) { setConfirmDelete({ id }) }
 
   if (loading) return <div className="py-10 text-center text-muted-foreground">Loading...</div>
 
@@ -696,6 +718,15 @@ function SectionsView({ schoolId, levels }: { schoolId: string; levels: SchoolLe
           </tbody>
         </table>
       </div>
+      {confirmDelete && (
+        <ConfirmDialog
+          open={true}
+          title="Delete Section"
+          message="Delete this section? This action cannot be undone."
+          onConfirm={async () => { await deleteSection(confirmDelete.id); setConfirmDelete(null); load() }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }
@@ -710,6 +741,7 @@ function ClassesView({ schoolId }: { schoolId: string }) {
   const [edit, setEdit] = useState<string | null>(null)
   const [form, setForm] = useState({ subjectId: '', teacherId: '', section: '', schedule: '', room: '' })
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null)
 
   function load() {
     setLoading(true)
@@ -729,7 +761,7 @@ function ClassesView({ schoolId }: { schoolId: string }) {
     setSaving(false); setShowForm(false); setEdit(null); setForm({ subjectId: '', teacherId: '', section: '', schedule: '', room: '' }); load()
   }
 
-  async function handleDelete(id: string) { if (confirm('Delete this class?')) { await deleteClass(id); load() } }
+  function handleDelete(id: string) { setConfirmDelete({ id }) }
 
   function startEdit(c: Class & { id: string }) {
     setEdit(c.id); setForm({ subjectId: c.subjectId, teacherId: c.teacherId, section: c.section, schedule: c.schedule || '', room: c.room || '' }); setShowForm(true)
@@ -805,6 +837,15 @@ function ClassesView({ schoolId }: { schoolId: string }) {
           </tbody>
         </table>
       </div>
+      {confirmDelete && (
+        <ConfirmDialog
+          open={true}
+          title="Delete Class"
+          message="Delete this class? This action cannot be undone."
+          onConfirm={async () => { await deleteClass(confirmDelete.id); setConfirmDelete(null); load() }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   )
 }
@@ -819,6 +860,7 @@ function EnrollmentsView({ schoolId }: { schoolId: string }) {
   const [selectedStudent, setSelectedStudent] = useState('')
   const [selectedClass, setSelectedClass] = useState('')
   const [search, setSearch] = useState('')
+  const [confirmUnenroll, setConfirmUnenroll] = useState<{ id: string } | null>(null)
 
   function load() {
     setLoading(true)
@@ -841,7 +883,7 @@ function EnrollmentsView({ schoolId }: { schoolId: string }) {
     setSelectedStudent(''); setSelectedClass(''); load()
   }
 
-  async function handleUnenroll(id: string) { if (confirm('Remove this enrollment?')) { await deleteEnrollment(id); load() } }
+  function handleUnenroll(id: string) { setConfirmUnenroll({ id }) }
 
   function exportCsv() {
     downloadCsv(`enrollments-${schoolId.slice(0, 8)}.csv`,
@@ -913,6 +955,15 @@ function EnrollmentsView({ schoolId }: { schoolId: string }) {
           </tbody>
         </table>
       </div>
+      {confirmUnenroll && (
+        <ConfirmDialog
+          open={true}
+          title="Remove Enrollment"
+          message="Remove this enrollment? This action cannot be undone."
+          onConfirm={async () => { await deleteEnrollment(confirmUnenroll.id); setConfirmUnenroll(null); load() }}
+          onCancel={() => setConfirmUnenroll(null)}
+        />
+      )}
     </div>
   )
 }

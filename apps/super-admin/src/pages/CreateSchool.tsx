@@ -49,7 +49,6 @@ export default function CreateSchool({ onCreated }: { onCreated: () => void }) {
         ownerEmail: form.ownerEmail,
         levels: form.levels,
         isActive: true,
-        createdAt: Date.now(),
       })
       if (result.adminEmail && result.adminPassword) {
         setCredentials({ email: result.adminEmail, password: result.adminPassword })
