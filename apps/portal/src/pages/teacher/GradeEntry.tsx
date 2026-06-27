@@ -16,8 +16,9 @@ export default function GradeEntry({ user }: { user: AppUser }) {
   const studentsRef = useRef<{ id: string; name: string }[]>([])
   const [isReleased, setIsReleased] = useState(false)
   const gradeReleaseDocId = useRef<string | null>(null)
-  const [dirty, setDirty] = useState(false)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dirtyRef = useRef(false)
+  const scoresRef = useRef(scores)
+  scoresRef.current = scores
 
   useEffect(() => {
     if (!user) return
@@ -67,13 +68,19 @@ export default function GradeEntry({ user }: { user: AppUser }) {
 
   useEffect(() => {
     if (!selectedClassId) return
+    setComponents([])
     let cancelled = false
     async function load() {
+      const cls = classes.find(c => c.id === selectedClassId)
+      if (!cls) return
+      const comps = cls.subject.gradingComponents
+      setComponents(comps)
+
       const existingScores = await listGrades({ classId: selectedClassId })
       const initScores: Record<string, Record<string, { score: string; maxScore: string }>> = {}
       for (const s of studentsRef.current) {
         initScores[s.id] = {}
-        for (const comp of components) {
+        for (const comp of comps) {
           const match = existingScores.find(es => es.studentId === s.id && es.componentId === comp.id)
           initScores[s.id][comp.id] = match
             ? { score: String(match.score), maxScore: String(match.maxScore) }
@@ -84,7 +91,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
     }
     load()
     return () => { cancelled = true }
-  }, [selectedClassId, components])
+  }, [selectedClassId, classes])
 
   useEffect(() => {
     if (!selectedClassId) return
@@ -105,55 +112,49 @@ export default function GradeEntry({ user }: { user: AppUser }) {
   }, [selectedClassId])
 
   const autoSave = useCallback(async () => {
-    if (!selectedClassId || !dirty) return
+    if (!selectedClassId || !dirtyRef.current) return
+    const currentScores = scoresRef.current
     setSaving(true)
     try {
-      const existingGrades = await listGrades({ classId: selectedClassId })
-      const newSet = new Set<string>()
       const toSave: GradeScore[] = []
-
-      for (const student of students) {
+      for (const student of studentsRef.current) {
         for (const comp of components) {
-          const cell = scores[student.id]?.[comp.id]
+          const cell = currentScores[student.id]?.[comp.id]
           const scoreVal = parseFloat(cell?.score || '0')
           const maxVal = parseFloat(cell?.maxScore || '0')
           if (isNaN(scoreVal) || isNaN(maxVal) || maxVal <= 0) continue
-          const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
-          if (found) {
-            toSave.push({ ...found, score: scoreVal >= 0 ? scoreVal : 0, maxScore: maxVal })
-            newSet.add(found.id)
-          } else {
-            toSave.push({
-              id: crypto.randomUUID(),
-              studentId: student.id,
-              classId: selectedClassId,
-              componentId: comp.id,
-              score: scoreVal >= 0 ? scoreVal : 0,
-              maxScore: maxVal,
-              schoolId,
-            })
-            newSet.add(toSave[toSave.length - 1].id)
-          }
+          toSave.push({
+            id: crypto.randomUUID(),
+            studentId: student.id,
+            classId: selectedClassId,
+            componentId: comp.id,
+            score: Math.max(0, scoreVal),
+            maxScore: maxVal,
+            schoolId,
+          })
         }
       }
-      existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => {
-        toSave.push({ ...eg, score: 0, maxScore: 100 })
-      })
-
+      if (toSave.length === 0) return
       await batchSaveGrades(toSave)
-      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, 'Auto-saved grades').catch(console.error)
-      setDirty(false)
-    } catch (err) { console.error('Auto-save failed:', err); showToast('Auto-save failed. Changes will be retried.', 'error') } finally { setSaving(false) }
-  }, [selectedClassId, students, components, scores, dirty, schoolId])
+      dirtyRef.current = false
+    } catch (err) {
+      console.error('Auto-save failed:', err)
+      showToast('Auto-save failed. Changes will be retried.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [selectedClassId, components, schoolId])
 
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (!dirty) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(autoSave, 3000)
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [dirty, autoSave])
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    }
+  }, [])
 
   function updateScore(studentId: string, componentId: string, field: 'score' | 'maxScore', value: string) {
+    const num = value === '' ? '' : Number(value)
+    if (value !== '' && (isNaN(Number(value)) || Number(value) < 0)) return
     setScores(prev => {
       const prevCell = prev[studentId]?.[componentId] || { score: '', maxScore: '' }
       return {
@@ -164,7 +165,9 @@ export default function GradeEntry({ user }: { user: AppUser }) {
         },
       }
     })
-    setDirty(true)
+    dirtyRef.current = true
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(autoSave, 2000)
   }
 
   function calcFinal(studentId: string): { initial: number; transmuted: number; descriptor: string } {
@@ -185,40 +188,28 @@ export default function GradeEntry({ user }: { user: AppUser }) {
     if (!selectedClassId) return
     setSaving(true)
     try {
-      const existingGrades = await listGrades({ classId: selectedClassId })
-      const newSet = new Set<string>()
       const toSave: GradeScore[] = []
-
       for (const student of students) {
         for (const comp of components) {
           const cell = scores[student.id]?.[comp.id]
           const scoreVal = parseFloat(cell?.score || '0')
           const maxVal = parseFloat(cell?.maxScore || '0')
           if (isNaN(scoreVal) || isNaN(maxVal) || maxVal <= 0) continue
-          const found = existingGrades.find(eg => eg.studentId === student.id && eg.componentId === comp.id)
-          if (found) {
-            toSave.push({ ...found, score: scoreVal >= 0 ? scoreVal : 0, maxScore: maxVal })
-            newSet.add(found.id)
-          } else {
-            toSave.push({
-              id: crypto.randomUUID(),
-              studentId: student.id,
-              classId: selectedClassId,
-              componentId: comp.id,
-              score: scoreVal >= 0 ? scoreVal : 0,
-              maxScore: maxVal,
-              schoolId,
-            })
-            newSet.add(toSave[toSave.length - 1].id)
-          }
+          toSave.push({
+            id: crypto.randomUUID(),
+            studentId: student.id,
+            classId: selectedClassId,
+            componentId: comp.id,
+            score: Math.max(0, scoreVal),
+            maxScore: maxVal,
+            schoolId,
+          })
         }
       }
-      existingGrades.filter(eg => !newSet.has(eg.id)).forEach(eg => {
-        toSave.push({ ...eg, score: 0, maxScore: 100 })
-      })
 
       await batchSaveGrades(toSave)
-      await createAuditLog(user.id, user.email, 'grade', 'grades', selectedClassId, `Saved grades for ${students.length} students`)
+      await createAuditLog(user.id, user.email, 'update', 'grades', selectedClassId, `Saved grades for ${students.length} students`)
+      dirtyRef.current = false
 
       await saveGradeRelease({
         id: gradeReleaseDocId.current || crypto.randomUUID(),
@@ -285,6 +276,7 @@ export default function GradeEntry({ user }: { user: AppUser }) {
           onChange={e => setSelectedClassId(e.target.value)}
           className="px-4 py-2.5 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/25"
         >
+          {classes.length === 0 && <option value="">No classes available</option>}
           {classes.map(c => (
             <option key={c.id} value={c.id}>{c.subject.code} — {c.section}</option>
           ))}
