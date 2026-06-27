@@ -286,9 +286,9 @@ export default function SchoolForms({ user }: { user: AppUser }) {
                       const status = getAttendanceForDay(s.id, day + 1)
                       return (
                         <td key={day} className={`px-0.5 py-0.5 text-center font-mono ${
-                          status === 'PRESENT' ? 'text-emerald-700' : status === 'ABSENT' ? 'text-red-600' : ''
+                          status === 'P' ? 'text-emerald-700' : status === 'A' ? 'text-red-600' : ''
                         }`}>
-                          {status === 'PRESENT' ? 'P' : status === 'ABSENT' ? 'A' : status === 'TARDY' ? 'T' : status === 'EXCUSED' ? 'E' : ''}
+                          {status === 'P' ? 'P' : status === 'A' ? 'A' : status === 'T' ? 'T' : status === 'E' ? 'E' : ''}
                         </td>
                       )
                     })}

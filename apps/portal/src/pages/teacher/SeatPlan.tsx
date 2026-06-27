@@ -110,7 +110,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
       const records = await listAttendance({ classId: selectedClassId, date: today })
       const map: Record<string, boolean> = {}
       records.forEach(r => {
-        map[r.studentId] = r.status === 'PRESENT'
+        map[r.studentId] = r.status === 'P'
       })
       if (!cancelled) setAttendanceMap(map)
     }
@@ -251,7 +251,7 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
       {
         id: crypto.randomUUID(),
         studentId, classId: selectedClassId, date: today,
-        status: 'PRESENT', remarks, recordedBy: user.id, schoolId,
+        status: 'P', remarks, recordedBy: user.id, schoolId,
       },
     ]
     await batchSaveAttendance(records)
@@ -298,12 +298,12 @@ export default function SeatPlanPage({ user }: { user: AppUser }) {
       records.push({
         id: crypto.randomUUID(),
         studentId, classId: selectedClassId, date: today,
-        status: 'PRESENT', remarks: 'Manual', recordedBy: user.id, schoolId,
+        status: 'P', remarks: 'Manual', recordedBy: user.id, schoolId,
       })
     } else {
       const existing = await listAttendance({ classId: selectedClassId, date: today, studentId })
       if (existing.length > 0) {
-        records.push({ ...existing[0], status: 'ABSENT' as AttendanceStatus, recordedBy: user.id })
+        records.push({ ...existing[0], status: 'A' as AttendanceStatus, recordedBy: user.id })
       }
     }
     if (records.length) {

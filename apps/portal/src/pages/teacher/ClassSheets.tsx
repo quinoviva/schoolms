@@ -166,8 +166,8 @@ export default function ClassSheets({ user }: { user: AppUser }) {
             <tbody>
               {students.map(s => {
                 const studentAtt = attendance.filter(a => a.studentId === s.id)
-                const present = studentAtt.filter(a => a.status === 'PRESENT').length
-                const absent = studentAtt.filter(a => a.status === 'ABSENT').length
+                const present = studentAtt.filter(a => a.status === 'P').length
+                const absent = studentAtt.filter(a => a.status === 'A').length
                 return (
                   <tr key={s.id} className="border-b border-border">
                     <td className="px-3 py-2 font-medium sticky left-0 bg-white">{s.name}</td>
@@ -176,12 +176,12 @@ export default function ClassSheets({ user }: { user: AppUser }) {
                       const status = rec?.status || ''
                       return (
                         <td key={d} className={`px-2 py-2 text-center text-xs font-bold ${
-                          status === 'PRESENT' ? 'text-emerald-600' :
-                          status === 'ABSENT' ? 'text-red-600' :
-                          status === 'EXCUSED' ? 'text-amber-600' :
-                          status === 'TARDY' ? 'text-orange-600' : ''
+                          status === 'P' ? 'text-emerald-600' :
+                          status === 'A' ? 'text-red-600' :
+                          status === 'E' ? 'text-amber-600' :
+                          status === 'T' ? 'text-orange-600' : ''
                         }`}>
-                          {status === 'PRESENT' ? '/' : status === 'ABSENT' ? 'X' : status === 'EXCUSED' ? 'E' : status === 'TARDY' ? 'T' : ''}
+                          {status === 'P' ? '/' : status === 'A' ? 'X' : status === 'E' ? 'E' : status === 'T' ? 'T' : ''}
                         </td>
                       )
                     })}

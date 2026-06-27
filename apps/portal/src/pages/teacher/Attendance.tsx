@@ -71,7 +71,7 @@ export default function Attendance({ user }: { user: AppUser }) {
         att[r.studentId] = r.status
       })
       studentsRef.current.forEach(s => {
-        if (!att[s.id]) att[s.id] = 'PRESENT'
+        if (!att[s.id]) att[s.id] = 'P'
       })
       if (!cancelled) setAttendance(att)
     }
@@ -114,7 +114,7 @@ export default function Attendance({ user }: { user: AppUser }) {
             studentId: sid,
             classId: selectedClassId,
             date,
-            status: 'PRESENT',
+            status: 'P',
             recordedBy: user.id,
             schoolId,
           })
@@ -122,7 +122,7 @@ export default function Attendance({ user }: { user: AppUser }) {
       })
 
       await batchSaveAttendance(records)
-      await createAuditLog(user.id, user.email, 'mark', 'attendance', selectedClassId, `Marked attendance for ${Object.keys(attendance).length} students on ${date}`)
+      await createAuditLog(user.id, user.email, 'update', 'attendance', selectedClassId, `Marked attendance for ${Object.keys(attendance).length} students on ${date}`)
       showToast('Attendance saved!', 'success')
     } catch (err) {
       console.error(err)
@@ -134,9 +134,9 @@ export default function Attendance({ user }: { user: AppUser }) {
 
   if (loading) return <Spinner />
 
-  const statuses: AttendanceStatus[] = ['PRESENT', 'ABSENT', 'EXCUSED', 'TARDY']
+  const statuses: AttendanceStatus[] = ['P', 'A', 'E', 'T']
   const statusStyle: Record<AttendanceStatus, string> = {
-    PRESENT: 'text-emerald-600', ABSENT: 'text-red-600', EXCUSED: 'text-amber-600', TARDY: 'text-blue-600',
+    P: 'text-emerald-600', A: 'text-red-600', E: 'text-amber-600', T: 'text-blue-600',
   }
   const counts = statuses.map(v => ({ v, n: Object.values(attendance).filter(a => a === v).length }))
 

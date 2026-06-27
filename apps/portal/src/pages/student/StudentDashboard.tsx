@@ -106,7 +106,7 @@ export default function StudentDashboard({ user }: { user: AppUser }) {
           }
 
           if (attendance.length) {
-            const present = attendance.filter(a => a.status === 'PRESENT').length
+            const present = attendance.filter(a => a.status === 'P').length
             setAttendanceRate(Math.round((present / attendance.length) * 100))
           } else {
             setAttendanceRate(null)
