@@ -22,7 +22,7 @@ export interface School {
   updatedAt?: number
 }
 
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'EXCUSED' | 'TARDY'
+export type AttendanceStatus = 'P' | 'A' | 'T' | 'E'
 
 export interface AppUser {
   id: string
@@ -162,7 +162,7 @@ export interface AuditLog {
   id: string
   userId: string
   userEmail: string
-  action: 'create' | 'update' | 'delete'
+  action: 'create' | 'update' | 'delete' | 'login' | 'logout' | 'read' | 'export'
   collection: string
   documentId: string
   details: string

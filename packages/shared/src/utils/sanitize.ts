@@ -10,7 +10,20 @@ export function sanitizeNumber(val: unknown, min = -Infinity, max = Infinity): n
 }
 
 export function sanitizeDate(val: unknown): string {
-  if (typeof val !== 'string') return ''
-  const match = val.match(/^\d{4}-\d{2}-\d{2}$/)
-  return match ? val : ''
+  if (typeof val === 'string') {
+    const match = val.match(/^\d{4}-\d{2}-\d{2}$/)
+    if (match) return val
+    try {
+      const d = new Date(val)
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0]
+      }
+    } catch {
+      return ''
+    }
+  }
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return val.toISOString().split('T')[0]
+  }
+  return ''
 }

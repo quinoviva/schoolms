@@ -1,4 +1,9 @@
 export function extractDriveFileId(url: string): string | null {
+  try {
+    new URL(url)
+  } catch {
+    return null
+  }
   const patterns = [
     /\/file\/d\/([a-zA-Z0-9_-]+)/,
     /\/open\?id=([a-zA-Z0-9_-]+)/,
@@ -49,10 +54,14 @@ export async function fetchDriveFileName(fileId: string, apiKey?: string): Promi
   if (!apiKey) return null
   try {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?key=${apiKey}&fields=name,mimeType`)
-    if (!res.ok) return null
+    if (!res.ok) {
+      console.warn(`Drive API error: ${res.status} for file ${fileId}`)
+      return null
+    }
     const data = await res.json()
     return data.name || null
-  } catch {
+  } catch (err) {
+    console.warn('Failed to fetch drive file name:', err)
     return null
   }
 }
