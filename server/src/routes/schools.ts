@@ -41,7 +41,7 @@ router.post('/', requireRole('super_admin'), async (req, res) => {
   const { id, name, slug, ownerName, ownerEmail, levels } = req.body
   const now = Date.now()
 
-  const adminEmail = `admin@${slug}${EMAIL_DOMAIN}`
+  const adminEmail = `admin+${slug}${EMAIL_DOMAIN}`
   const adminPassword = '-adminuser'
 
   await db('schools').insert({ id, name, slug, owner_name: ownerName, owner_email: ownerEmail, levels: levels || ['kinder', 'elementary', 'highschool', 'senior_highschool'], created_at: now })
